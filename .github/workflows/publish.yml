@@ -1,0 +1,82 @@
+# Builds and publishes the Decidio SDK packages from this repository on a release tag (sdk-v*):
+#   @decidio/verify, @decidio/sdk and decidio on npm, with provenance; decidio on PyPI, with attestations.
+# Trusted publishing: npm and PyPI accept these uploads only from this workflow file in the `release` environment, which
+# a maintainer approves for every run. No registry token is stored anywhere.
+# Every package is checked against release.json (scripts/check-release.mjs) before the first upload.
+name: publish
+on:
+  push:
+    tags: ["sdk-v*"]
+permissions:
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+
+      - name: The tag is this release, and npm can publish with trusted publishing
+        run: |
+          V=$(node -p "require('./sdk/package.json').version")
+          [ "$GITHUB_REF_NAME" = "sdk-v$V" ] || { echo "::error::the tag is $GITHUB_REF_NAME but sdk/package.json is $V"; exit 1; }
+          for p in verify alias; do
+            [ "$(node -p "require('./$p/package.json').version")" = "$V" ] || { echo "::error::$p/package.json is not $V"; exit 1; }
+          done
+          NPM=$(npm --version)
+          node -e "const [a,b,c]=process.argv[1].split('.').map(Number); process.exit(a>11||(a===11&&(b>5||(b===5&&c>=1)))?0:1)" "$NPM" \
+            || { echo "::error::npm $NPM is older than 11.5.1, which trusted publishing needs"; exit 1; }
+
+      # --ignore-scripts: the builds are plain tsc, and no dependency's install script runs in a job that can mint the
+      # publishing token.
+      - name: Build @decidio/verify and @decidio/sdk (the sdk against the verify built here, then pinned to it)
+        run: |
+          (cd verify && npm ci --ignore-scripts --no-audit --no-fund && npm run build)
+          cd sdk
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm install ../verify --no-save --ignore-scripts --no-audit --no-fund
+          npm run build
+          npm pkg set "dependencies.@decidio/verify=$(node -p "require('../verify/package.json').version")"
+
+      - name: Build decidio (Python)
+        run: |
+          python -m pip install --quiet build
+          python -m build --outdir pydist python
+
+      - name: Check every package against release.json
+        run: node scripts/check-release.mjs
+
+      - name: Publish @decidio/verify (npm; skipped when this version is already there)
+        run: |
+          cd verify
+          V=$(node -p "require('./package.json').version")
+          if npm view "@decidio/verify@$V" version > /dev/null 2>&1; then echo "@decidio/verify@$V is already on npm."; else npm publish --access public --provenance; fi
+
+      - name: Publish @decidio/sdk (npm; skipped when this version is already there)
+        run: |
+          cd sdk
+          V=$(node -p "require('./package.json').version")
+          if npm view "@decidio/sdk@$V" version > /dev/null 2>&1; then echo "@decidio/sdk@$V is already on npm."; else npm publish --access public --provenance; fi
+
+      - name: Publish decidio (npm; skipped when this version is already there)
+        run: |
+          cd alias
+          V=$(node -p "require('./package.json').version")
+          if npm view "decidio@$V" version > /dev/null 2>&1; then echo "decidio@$V is already on npm."; else npm publish --access public --provenance; fi
+
+      - name: Publish decidio (PyPI)
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
+        with:
+          packages-dir: pydist
+          skip-existing: true
