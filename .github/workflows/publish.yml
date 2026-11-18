@@ -49,10 +49,13 @@ jobs:
           npm run build
           npm pkg set "dependencies.@decidio/verify=$(node -p "require('../verify/package.json').version")"
 
-      - name: Build decidio (Python)
+      # twine is the version the PyPI action below bundles (v1.14.3: twine 7.0.0), so a distribution PyPI's upload would refuse
+      # stops the run here, before anything is published to npm (0.20.0 published npm and then failed at PyPI).
+      - name: Build decidio (Python), and check it the way the PyPI upload will
         run: |
-          python -m pip install --quiet build
+          python -m pip install --quiet build twine==7.0.0
           python -m build --outdir pydist python
+          python -m twine check --strict pydist/*
 
       - name: Check every package against release.json
         run: node scripts/check-release.mjs
@@ -76,7 +79,7 @@ jobs:
           if npm view "decidio@$V" version > /dev/null 2>&1; then echo "decidio@$V is already on npm."; else npm publish --access public --provenance; fi
 
       - name: Publish decidio (PyPI)
-        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3 (twine 7.0.0)
         with:
           packages-dir: pydist
           skip-existing: true
