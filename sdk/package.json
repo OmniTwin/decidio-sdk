@@ -1,0 +1,97 @@
+{
+  "name": "@decidio/sdk",
+  "version": "0.20.0",
+  "description": "One-line approval gate for AI-agent actions. Wrap a risky tool call with guard.protect(); Decidio's policy engine decides proceed | route | block, a human approves routed actions, and every outcome is sealed as a verifiable Authority Receipt.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "types": "dist/index.d.ts",
+  "main": "dist/index.js",
+  "bin": {
+    "decidio": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./resume": {
+      "types": "./dist/resume.d.ts",
+      "default": "./dist/resume.js"
+    },
+    "./inngest": {
+      "types": "./dist/inngest.d.ts",
+      "default": "./dist/inngest.js"
+    },
+    "./langgraph": {
+      "types": "./dist/adapters/langgraph.d.ts",
+      "default": "./dist/adapters/langgraph.js"
+    },
+    "./temporal": {
+      "types": "./dist/adapters/temporal.d.ts",
+      "default": "./dist/adapters/temporal.js"
+    },
+    "./openai": {
+      "types": "./dist/adapters/openai.d.ts",
+      "default": "./dist/adapters/openai.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "openapi.yaml",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.6"
+  },
+  "keywords": [
+    "ai-agents",
+    "approvals",
+    "human-in-the-loop",
+    "authority",
+    "audit",
+    "agent-governance",
+    "verifiable-credentials"
+  ],
+  "homepage": "https://decidioai.com/developers/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OmniTwin/decidio-sdk.git",
+    "directory": "sdk"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@langchain/langgraph": ">=0.2 <2",
+    "@temporalio/workflow": ">=1.9 <2"
+  },
+  "peerDependenciesMeta": {
+    "@langchain/langgraph": {
+      "optional": true
+    },
+    "@temporalio/workflow": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@langchain/langgraph": "^1.4.13",
+    "@temporalio/workflow": "^1.23.0",
+    "@types/node": "^22.20.1",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && tsc -p tsconfig.types.json"
+  },
+  "dependencies": {
+    "@decidio/verify": "0.2.1"
+  },
+  "author": "OmniTwin Technologies Inc.",
+  "bugs": {
+    "url": "https://decidioai.com/support/"
+  }
+}

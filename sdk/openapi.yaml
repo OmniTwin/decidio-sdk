@@ -1,0 +1,563 @@
+# The agent-gate wire contract @decidio/sdk speaks — the machine-readable companion to the
+# quickstart. Scope is deliberately the AGENT FLOOR only (what the floor-limited agent token can
+# reach) plus the outbound resume webhook Decidio sends; workspace administration (register,
+# token mint, approvals) is a human/session surface and stays out of this file.
+openapi: 3.1.0
+info:
+  title: Decidio Agent Gate
+  version: 0.20.0   # tracks the SDK release - checked by packages/conformance/manifests.mjs
+  description: >
+    Authorize an AI-agent action (proceed | route | block), confirm the captured outcome, and
+    receive the signed resume webhook when a routed action is decided. Every outcome seals a
+    verifiable Authority Receipt — verify offline with @decidio/verify (npm) or
+    `python -m decidio.verify` (pip install decidio).
+  license:
+    name: Apache-2.0
+servers:
+  - url: https://mcp.decidioai.com
+    description: Decidio
+  - url: https://mcp-staging.decidioai.com
+    description: The lab (invite-only staging, synthetic data)
+  - url: http://localhost:4000
+    description: Local development
+security:
+  - agentToken: []
+components:
+  securitySchemes:
+    agentToken:
+      type: http
+      scheme: bearer
+      description: >
+        The FLOOR-LIMITED agent token minted by `npx @decidio/sdk init` (or Connect → Agents).
+        It authenticates only these /agent/* paths and /a2a — every other API path refuses it.
+  schemas:
+    RequesterIdentity:
+      type: object
+      description: >
+        Request-bound Ed25519 identity proof (detached JWS over the RFC 8785-canonicalized
+        payload; 120s TTL, single-use nonce). Registered agents must sign to be eligible for
+        policy auto-approve; unsigned requests still work but always route to a human.
+      required: [agentId, did, action, amount, nonce, exp, proof]
+      properties:
+        agentId: { type: string }
+        did: { type: string, description: "did:key of the agent's LOCALLY generated keypair" }
+        action: { type: string }
+        amount: { type: number }
+        scope: { type: string }
+        workspaceId: { type: string }
+        nonce: { type: string }
+        exp: { type: integer, description: unix ms expiry }
+        proof:
+          type: object
+          required: [protected, signature]
+          properties:
+            protected: { type: string, description: base64url JWS protected header (EdDSA, kid=did) }
+            signature: { type: string, description: base64url detached signature }
+    AuthorizeRequest:
+      type: object
+      required: [requester, action, amount]
+      properties:
+        requester: { type: string, description: the registered agentId }
+        action: { type: string }
+        amount: { type: number }
+        scope: { type: string }
+        sourceSystem: { type: string }
+        context: { type: object, additionalProperties: true }
+        requesterIdentity: { $ref: "#/components/schemas/RequesterIdentity" }
+        resumeUrl:
+          type: string
+          format: uri
+          description: where Decidio POSTs the signed wake-up when a routed decision resolves
+        requestCommitment:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+          description: >
+            REQUEST BINDING (SDK 0.7.0). An OPAQUE commitment to the exact request the agent will run:
+            lowercase-hex HMAC-SHA256 under a key only the agent holds (its Ed25519 signing key, else its
+            API token) over the canonical request. Stored with the decision and returned by
+            GET /agent/status; the SDK recomputes it over the request it is about to run and refuses a
+            mismatch. Carries no authority - the verdict is computed exactly as without it. Anything that
+            is not 64 lowercase hex is a 400.
+        idempotencyKey:
+          type: string
+          pattern: "^[A-Za-z0-9._:-]{16,128}$"
+          description: >
+            SDK 0.7.0. The same key from the same requester returns the SAME decision (idempotentReplay:
+            true) instead of a new one - an engine that re-runs its authorizing code on resume (LangGraph)
+            must not mint a phantom second decision. Accepted ONLY beside a requestCommitment (a key alone is
+            400). Stored only as a requester-scoped HMAC. A replay must be the same request twice over - the
+            same requestCommitment AND the same requester, action, amount and scope (the server binds that
+            tuple itself) - otherwise 409 IDEMPOTENCY_CONFLICT; an earlier decision is never handed back for a
+            changed request.
+
+
+            SDK 0.12.0 sends one BY DEFAULT beside every requestCommitment: a keyed HMAC over a fresh id for the
+            call and the commitment (or over the caller's own key, or an engine's own id for the call - an
+            OpenAI tool call id, a Temporal workflow run and activity, an Inngest run), and retries a network
+            failure, a 5xx or a non-AGENT_RATE 429 with the SAME key: a retry of a request still waiting is
+            answered with the one already waiting, and no retry runs an action twice. (A request is not
+            guaranteed single: an auto-approval whose answer is lost on every try, or a keyless request a policy
+            blocks, can make a second decision.) Without key material there is no commitment and no key.
+    AuthorizeResponse:
+      type: object
+      required: [decision, decisionId, receiptId]
+      properties:
+        decision:
+          type: string
+          enum: [proceed, route, block]
+          description: >
+            Treat any OTHER value as block — the SDKs allow-list these three so an older client
+            fails closed against a newer server.
+        decisionId: { type: string }
+        receiptId: { type: string }
+        reason: { type: string }
+        requestCommitment:
+          type: [string, "null"]
+          description: the commitment stored with the decision (SDK 0.7.0), null when none was sent
+        idempotentReplay:
+          type: boolean
+          description: >
+            present (true) when this answer is an idempotent replay of an existing decision: nothing was
+            evaluated, created, sealed or summoned again (one `agent.authorize.replayed` audit row is written),
+            and `receipt` carries only the fields fixed at create. A sealed auto-approval replays as `proceed`
+            only when THIS call could itself auto-approve (a verified, replay-protected identity or a trusted
+            transport); anything else answers `route` or `block` - ask GET /agent/status for the real state.
+        openTwin:
+          type: boolean
+          description: >
+            present (true, beside idempotentReplay) when this KEYLESS request joined the same request from the
+            same agent that is still waiting for a person: nothing new was created, counted or summoned, and the
+            caller waits on that decision. The request may be shared, so a caller that gives up waiting must not
+            withdraw it (the SDKs skip their timeout withdraw after either flag; the server refuses a shared
+            withdraw with 409 SHARED_REQUEST).
+    StatusResponse:
+      type: object
+      required: [state]
+      description: >
+        Reading the status claims NOTHING: a dashboard, the CLI or a second watcher can poll it freely. The run
+        that acts on a person's approval collects it with POST /agent/claim/{decisionId}.
+      properties:
+        state:
+          type: string
+          enum: [pending, approved, auto_approved, rejected, blocked]
+        decisionId: { type: string }
+        receiptId: { type: [string, "null"] }
+        reason: { type: [string, "null"], description: the approver's reason, tokenized; never a cleartext name }
+        requestCommitment:
+          type: [string, "null"]
+          description: >
+            SDK 0.7.0: the request commitment the decision was authorized with (null when none was
+            sent). The SDK treats an approval as covering the request it is about to run only when this
+            equals its own recompute; a gate that returns no commitment for a request the SDK bound is
+            refused (commitment_missing), never trusted.
+        spent:
+          type: boolean
+          description: >
+            SDK 0.8.0: true once an execution is recorded on this approval - one approval covers one action,
+            once. The SDKs refuse to run on a spent approval and ask again.
+        grantExpiresAt:
+          type: [string, "null"]
+          format: date-time
+          description: >
+            SDK 0.8.0: when a granted decision's approval lapses (its seal's time plus the gate's TTL); null
+            otherwise. A granted decision with no expiry has a grant of unknown age, which the SDKs treat as
+            expired.
+        handedBackAt:
+          type: [string, "null"]
+          format: date-time
+          description: when an idempotent replay handed this granted decision back to a retry (null otherwise)
+        claimed:
+          type: boolean
+          description: >
+            SDK 0.12.0: whether a run has collected this person's approval (POST /agent/claim) - never by whom.
+            Informational: it claims nothing, and a caller decides a claim only by claiming.
+    ConfirmRequest:
+      type: object
+      required: [decisionId, capturedResponse, source]
+      properties:
+        decisionId: { type: string }
+        capturedResponse:
+          description: the REAL downstream response the wrapper captured (server minimizes + tokenizes before sealing)
+        source:
+          type: string
+          enum: [wrapper, agent]
+          description: wrapper = SDK-captured (eligible for application_confirmed); agent = self-report (capped at agent_asserted)
+        requesterIdentity:
+          $ref: "#/components/schemas/RequesterIdentity"
+          description: confirm proof is bound to {action:"confirm", scope:decisionId}
+        executionReport:
+          $ref: "#/components/schemas/ExecutionReport"
+    ExecutionReport:
+      type: object
+      description: >
+        OPTIONAL proof of WHAT was executed: a domain-separated, versioned envelope over a digest
+        of the captured response, bound to the decision, the agent and the workspace. The server
+        VERIFIES it before persisting anything — it recomputes the digest from `capturedResponse`
+        on this same request, requires the signer to be the decision's original requesting agent
+        AND still registered and active, and burns the nonce so a report is single-use. A report
+        copied onto a different decision, a different agent, or an altered response is refused.
+
+        A REFUSED REPORT DOES NOT FAIL THE CONFIRM. This envelope grants no authority — the
+        evidence tier comes from the response, the identity from the confirm proof — so an
+        unverifiable attestation is refused as an ATTESTATION (never stored as evidence, and the
+        refusal is itself audited) while the confirmation is still recorded. The response reports
+        which happened via `executionReport.verified`; it is never silent. Omit the field entirely
+        and confirm behaves exactly as before.
+      required: [v, purpose, decisionId, agentId, did, source, resultDigest, digestAlg, canonicalization, nonce, exp, proof]
+      properties:
+        v: { type: integer, enum: [1] }
+        purpose: { type: string, enum: ["decidio.execution-report"], description: domain separation — this signature can never be replayed as another Decidio proof }
+        decisionId: { type: string }
+        agentId: { type: string }
+        did: { type: string, description: "did:key of the signing agent" }
+        workspaceId: { type: string, description: tenant binding; present when the agent knows it }
+        source: { type: string, enum: [wrapper, agent] }
+        resultDigest:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+          description: lowercase-hex SHA-256 over the canonicalized captured response (the server recomputes it and compares)
+        digestAlg: { type: string, enum: ["sha-256"] }
+        canonicalization: { type: string, enum: ["decidio-jcs-1"], description: RFC 8785 JCS with Decidio's refusal rules }
+        nonce:
+          type: string
+          pattern: "^[A-Za-z0-9._:-]{8,64}$"
+          description: single-use; burned server-side, so a replayed report is refused
+        exp:
+          type: integer
+          description: unix ms expiry. The server also refuses an expiry more than 15 minutes ahead of now — a client-chosen lifetime is not freshness.
+        proof:
+          type: object
+          required: [protected, signature]
+          properties:
+            protected: { type: string, description: "base64url JWS protected header (EdDSA, kid=did, typ=decidio-execution-report+jws)" }
+            signature: { type: string, description: base64url detached signature over protected.payload }
+    ResumeWebhookResponse:
+      type: object
+      description: >
+        What the agent's resume endpoint answers. Through 0.1.x this was `{ok, outcome:{status,
+        decisionId}}` — the operator learned the SDK had finished, not whether the execution was
+        recorded, which is the only part Decidio can act on. Every field below was already
+        computed and discarded at the last line of the handler.
+      required: [ok, outcome]
+      properties:
+        ok: { type: boolean }
+        outcome:
+          type: object
+          required: [status, decisionId]
+          properties:
+            status:
+              type: string
+              enum: [executed, indeterminate, rejected, blocked, no_handler, unknown, not_approved, request_unverified]
+              description: >
+                the LOCAL run. `indeterminate` means the handler was invoked and its outcome is
+                unknown — it will NOT be retried automatically and needs reconcile(). Since SDK 0.7.0 the
+                webhook is a wake-up: `not_approved` = Decidio does not (yet) record an approval, so nothing
+                ran and the entry stays parked; `request_unverified` = the approval could not be tied to the
+                parked request (a different request, or no commitment from the gate), so nothing ran.
+            decisionId: { type: string }
+            reportRecorded: { type: boolean, description: "Decidio accepted the execution report." }
+            executionConfirmed: { type: boolean, description: "the recorded tier attests a COMMITTED execution — a different question from reportRecorded." }
+            evidenceTier:
+              type: string
+              enum: [pending, execution_unconfirmed, agent_asserted, sensor_observed, application_confirmed, independently_reconciled]
+            executionReportVerified: { type: boolean }
+            executionReportReason: { type: string, description: "why the attestation did not verify — a field, so a caller can branch instead of parsing prose." }
+            confirmationRetryable: { type: boolean, description: "whether re-sending this report could succeed." }
+            reportJournalled: { type: boolean, description: "whether the reported value is durable, which decides whether reconfirm() can help." }
+            evidenceError: { type: string, description: "the evidence mapper rejected the return value, so an empty captured response was reported." }
+            diagnostic: { type: string }
+    ConfirmResponse:
+      type: object
+      description: >
+        What the gate actually recorded. The SDK treats an unrecognised `confirmation` as NOT
+        evidence (closed enum, fail-closed), so adding a tier here is a breaking change for older
+        clients by design — they refuse to interpret what they do not understand rather than
+        guess.
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+          description: false means nothing was recorded; the SDK does not treat the report as delivered.
+        confirmation:
+          type: string
+          enum: [pending, execution_unconfirmed, agent_asserted, sensor_observed, application_confirmed, independently_reconciled]
+          description: the tier the report EARNED. Absent on a 2xx means no tier was assigned — also not evidence.
+        recordId:
+          type: string
+          description: the record the evidence accrued to.
+        executionReport:
+          type: object
+          description: >
+            The server's verdict on the signed report, when one was sent. `verified: false` with a
+            reason is surfaced to the caller verbatim — an execution whose proof did not check out
+            must not read as confirmed.
+          properties:
+            verified: { type: boolean }
+            reason:
+              type: string
+              description: why verification failed (unknown did, expired proof, burnt nonce, payload mismatch).
+    ResumeWebhook:
+      type: object
+      description: >
+        OUTBOUND — Decidio → your resumeUrl when a routed decision is decided. The raw body is
+        HMAC-signed; verify `x-decidio-signature: sha256=<hex>` with your DECIDIO_WEBHOOK_SECRET
+        BEFORE acting (the SDK resume controllers fail closed; since SDK 0.7.0 there is no fallback to
+        the API token - no secret means 401). The server signs with DECIDIO_WEBHOOK_SECRET only and sends
+        no webhook without it; it is a dedicated secret - never the server's API_AUTH_TOKEN. It is a WAKE-UP, never the authority: since SDK 0.7.0 the
+        SDK reads only `decisionId`, then asks GET /agent/status and runs the parked action only when
+        Decidio records it approved for THIS request (the request commitment). A duplicate delivery cannot cause a
+        second execution: the SDK writes a durable invoking marker before calling the handler,
+        so once invocation may have begun it is never invoked again automatically.
+        OPERATOR DEPLOYMENTS ONLY: signing uses a shared secret configured on both the Decidio
+        server and the agent, and self-hosted production allow-lists resume hosts (default-deny).
+        Self-serve agents against Decidio's service use the SDK's poll worker (guard.worker())
+        instead — a locally generated secret the server never learned would (correctly) fail
+        closed here.
+      required: [decisionId, verdict]
+      properties:
+        decisionId: { type: string }
+        verdict: { type: string, enum: [approved, rejected] }
+      # NOTE — deliberately NO `reason` field: the human's justification is never delivered to an
+      # agent-controlled URL (that would egress cleartext rationale). Agents read the tokenized
+      # reason via GET /agent/status/{decisionId} instead. Do not "fix" the server to match a
+      # richer webhook shape.
+paths:
+  /agent/authorize:
+    post:
+      summary: Ask the gate to authorize one agent action
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AuthorizeRequest" }
+      responses:
+        "200":
+          description: verdict
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthorizeResponse" }
+        "400": { description: "a malformed field, including a requestCommitment or idempotencyKey outside its grammar, or an idempotencyKey without a requestCommitment" }
+        "401": { description: missing/invalid agent token }
+        "409":
+          description: >
+            IDEMPOTENCY_CONFLICT (SDK 0.7.0) - this idempotencyKey already names a decision for a
+            DIFFERENT request (its requestCommitment, or its requester, action, amount or scope, differs).
+            Send a new key for the new request.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { type: string, enum: [IDEMPOTENCY_CONFLICT] }
+                  message: { type: string }
+  /agent/status/{decisionId}:
+    get:
+      summary: Poll a routed decision (blocking mode / durable worker)
+      parameters:
+        - name: decisionId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: current state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StatusResponse" }
+        "400":
+          description: >
+            `INVALID_DECISION_ID` - the id is not a usable decision id (empty, whitespace-padded,
+            control characters, a path, or over 128 characters). Deliberately NOT the 404 below: a
+            malformed id is not a decision that might exist somewhere else, and answering "unknown
+            decision" would send you looking for something that could never have been issued. The
+            check runs BEFORE any lookup, so this response reveals nothing about existence.
+        "401": { description: missing/invalid agent token }
+        "404": { description: unknown decision }
+  /agent/claim/{decisionId}:
+    post:
+      summary: Collect a person's approval for ONE run, once, right before acting on it (SDK 0.12.0)
+      description: >
+        Several programs can wait on one approval (callers that asked the same request, a second poller); only
+        the run that collects it runs it. The first claim wins. The same claimKey claiming again is the same run
+        retrying (a lost answer) and is answered the same, with `again: true`. Any other key is told the
+        approval was already used, and asks again. Only a PERSON's approval (state `approved`) is claimed: an
+        auto-approval is never shared, so it is NOT_CLAIMABLE, and so are a refusal, a waiting request and a
+        GitHub deploy approval (its deploy job uses it). A spent or expired approval is refused before anything
+        is written. A person's sign-in cannot claim (people approve, runs claim): it gets the 404. A bound agent
+        token claims only its own signed decisions; an unsigned decision is claimable by any agent credential
+        of the workspace (founder call 29). The SDKs make the claimKey at random for each run (two workers with
+        one key would be one run), retry a network failure or a 5xx with the SAME key, and run only on a 200.
+      parameters:
+        - name: decisionId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [claimKey]
+              properties:
+                claimKey:
+                  type: string
+                  pattern: "^[A-Za-z0-9._:-]{16,128}$"
+                  description: the run's own key; stored only as a keyed digest scoped to this decision
+      responses:
+        "200":
+          description: this run collected the approval - run the action
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, claimed, decisionId, again]
+                properties:
+                  ok: { type: boolean, enum: [true] }
+                  claimed: { type: boolean, enum: [true] }
+                  decisionId: { type: string }
+                  again: { type: boolean, description: true when the same key claimed again (the same run retrying) }
+        "400": { description: "a malformed decision id (INVALID_DECISION_ID) or claimKey (VALIDATION)" }
+        "401": { description: missing/invalid agent token }
+        "404": { description: unknown decision, one this credential may not claim, or a person's sign-in }
+        "409":
+          description: >
+            Do NOT run. `ALREADY_USED` - another run collected this approval, or it was already used: ask again
+            for a new one. `EXPIRED` - the approval lapsed: ask again. `NOT_CLAIMABLE` - not a person's approval
+            (still waiting, refused, an auto-approval, or a deploy approval).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { type: string, enum: [ALREADY_USED, EXPIRED, NOT_CLAIMABLE] }
+                  decisionId: { type: string }
+                  state: { type: string, enum: [pending, approved, auto_approved, rejected, blocked] }
+                  message: { type: string }
+  /agent/withdraw/{decisionId}:
+    post:
+      summary: The requester stopped waiting - close its OPEN routed request as withdrawn (SDK 0.6.4)
+      description: >
+        The blocking SDK wait calls this when it hits its ceiling, so the queue stops carrying a request nobody
+        will act on and a later tap cannot seal "approved" for an action that will never run. A withdrawal only
+        ever reduces authority. Only the requester may withdraw: a bound agent token whose agent signed the
+        request; everything else is the 404. A withdrawn request reads `rejected` on GET /agent/status. A SHARED
+        request is never withdrawn: once another caller joined it (openTwin), the answer is 409 SHARED_REQUEST and
+        nothing changes. The SDKs skip the withdraw after an `idempotentReplay` or `openTwin` answer.
+      parameters:
+        - name: decisionId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string, enum: [timeout, cancelled], description: "default timeout" }
+      responses:
+        "200":
+          description: withdrawn
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  withdrawn: { type: boolean, enum: [true] }
+                  state: { type: string, enum: [rejected] }
+                  decisionId: { type: string }
+                  reason: { type: string }
+        "400": { description: "a malformed decision id (INVALID_DECISION_ID) or an unknown reason (INVALID_REASON)" }
+        "401": { description: missing/invalid agent token }
+        "404": { description: unknown decision, or not this requester's own signed request }
+        "409":
+          description: >
+            `NOT_OPEN` - a decision already stands (or it was already withdrawn); `state` is the derived state, so
+            an approval that landed in the last moment is honoured. `SHARED_REQUEST` - another caller is waiting on
+            this same request; nothing changed (no `state`), and a person still decides it.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { type: string, enum: [NOT_OPEN, SHARED_REQUEST] }
+                  state: { type: string, enum: [pending, approved, auto_approved, rejected, blocked] }
+                  decisionId: { type: string }
+                  message: { type: string }
+  /agent/confirm:
+    post:
+      summary: >
+        Report the captured execution outcome — recorded as the RECORD's evidence tier. The tier
+        is EARNED, not requested: `application_confirmed` when the report carries a valid signed
+        executionReport from a registered agent, `agent_asserted` when it is an unsigned
+        self-report, `execution_unconfirmed` when the captured response carries no usable
+        evidence. The caller does not choose it and this endpoint does not always grant the top
+        one. The credential sealed at decision time is immutable; evidence accrues on the record,
+        never inside the sealed bytes.
+
+
+        A SUPPLIED-BUT-REFUSED executionReport CAPS THE TIER at `execution_unconfirmed`, whatever
+        else the report would have earned — and deliberately BELOW `agent_asserted`. A failed
+        attestation is weaker evidence than never claiming one; the opposite ordering would reward
+        sending a forged report over sending none. The server verifies the report and derives the
+        tier on the SAME path, so a refused attestation can no longer land on a receipt beside
+        `application_confirmed`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConfirmRequest" }
+      responses:
+        "200":
+          description: >
+            The report was accepted. `ok` and the tier are what the SDK branches on — a 200 alone
+            does NOT mean the execution was confirmed, and a client that assumes it does will
+            record an assurance the server never granted.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConfirmResponse" }
+        "401": { description: missing/invalid agent token }
+        "404": { description: unknown decision, or one this agent is not bound to }
+        "409":
+          description: >
+            The gate refuses to attach execution evidence to this decision AT ALL. This is not a
+            report failure, and a client must not treat it as one — handle it separately from a
+            5xx. `code` is either:
+
+            `TERMINALLY_DENIED` — a human or a policy DENIED this decision. If your action ran, it
+            ran against a refusal: do NOT re-run it, and investigate how it executed without an
+            approval. A denial is terminal and cannot be reconciled or retried.
+
+            `NOT_AUTHORIZED` — this is not an approved, sealed decision, so there is nothing for
+            evidence to attach to yet. If you are confirming early, wait for the approval. If your
+            action already ran, it ran WITHOUT authority.
+
+            Not retryable in either case: the same request will be refused the same way.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { type: string, enum: [TERMINALLY_DENIED, NOT_AUTHORIZED] }
+                  message: { type: string }
+  x-webhooks:
+    resume:
+      post:
+        summary: Signed wake-up delivery (Decidio → agent resumeUrl); the SDK confirms the approval with GET /agent/status before acting
+        requestBody:
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ResumeWebhook" }
+        responses:
+          "200":
+            description: >
+              Agent accepted; executed at most once — a duplicate delivery is refused by the
+              durable execution state, not re-run. The body reports what was RECORDED, not merely
+              that the SDK finished: a 200 whose `outcome.reportRecorded` is false means the
+              action ran and Decidio does NOT have its report.
+            content:
+              application/json:
+                schema: { $ref: "#/components/schemas/ResumeWebhookResponse" }
+          "401": { description: signature missing/invalid — the controller fails closed }

@@ -1,0 +1,54 @@
+{
+  "name": "@decidio/verify",
+  "version": "0.20.0",
+  "description": "Standalone, zero-dependency verifier for Decidio Authority Receipts (W3C VC, Ed25519 did:key). Verify a sealed receipt's signature + content binding + chain order offline — no Decidio dependency. `npx @decidio/verify receipt.json`.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "types": "dist/verify.d.ts",
+  "main": "dist/verify.js",
+  "bin": {
+    "decidio-verify": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/verify.d.ts",
+      "default": "./dist/verify.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.6"
+  },
+  "keywords": [
+    "verifiable-credentials",
+    "audit",
+    "receipts",
+    "ed25519",
+    "offline-verification"
+  ],
+  "homepage": "https://decidioai.com/receipt-spec/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OmniTwin/decidio-sdk.git",
+    "directory": "verify"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "typescript": "^5.9.3"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.build.json --noEmit",
+    "build": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && tsc -p tsconfig.types.json"
+  },
+  "author": "OmniTwin Technologies Inc.",
+  "bugs": {
+    "url": "https://decidioai.com/support/"
+  }
+}

@@ -1,0 +1,14 @@
+#!/usr/bin/env node
+// `npx decidio` — the short name for the Decidio SDK's command line (founder ruling 2026-09-06: fewer keystrokes for a
+// stranger's first minute). This package holds nothing but this file. It resolves the @decidio/sdk it depends on (pinned
+// to the same version, released in lockstep) and runs that CLI, which reads process.argv exactly as if invoked directly:
+// `npx decidio quickstart --demo` is `npx @decidio/sdk quickstart --demo`. Nothing here is a second implementation.
+//
+// The file is extensionless on purpose: the CLI decides "am I the program?" from process.argv[1], and a path ending in
+// `decidio` is one of the shapes it recognises (the same as npm's global shim).
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
+
+const sdkDir = dirname(createRequire(import.meta.url).resolve("@decidio/sdk/package.json"));
+await import(pathToFileURL(join(sdkDir, "dist", "cli.js")).href);

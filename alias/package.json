@@ -1,0 +1,39 @@
+{
+  "name": "decidio",
+  "version": "0.20.0",
+  "description": "The short name for the Decidio SDK's command line: `npx decidio` runs the same CLI as `npx @decidio/sdk` (this package holds nothing but that hand-off).",
+  "license": "Apache-2.0",
+  "author": "OmniTwin Technologies Inc.",
+  "homepage": "https://decidioai.com/developers/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OmniTwin/decidio-sdk.git",
+    "directory": "alias"
+  },
+  "type": "module",
+  "bin": {
+    "decidio": "decidio"
+  },
+  "files": [
+    "decidio",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "@decidio/sdk": "0.20.0"
+  },
+  "engines": {
+    "node": ">=20.6"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "ai-agents",
+    "approvals",
+    "human-in-the-loop",
+    "authority",
+    "agent-governance",
+    "verifiable-credentials"
+  ]
+}

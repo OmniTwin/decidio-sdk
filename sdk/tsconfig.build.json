@@ -1,0 +1,24 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "removeComments": true,
+    "noEmit": false,
+    "declaration": false,
+    "outDir": "dist",
+    "rootDir": "."
+  },
+  "include": [
+    "build-shims/engine-shims.d.ts",
+    "index.ts",
+    "guard.ts",
+    "resume.ts",
+    "signing.ts",
+    "cli.ts",
+    "demo-gate.ts",
+    "inngest.ts",
+    "adapters/_gate.ts",
+    "adapters/langgraph.ts",
+    "adapters/temporal.ts",
+    "adapters/openai.ts"
+  ]
+}

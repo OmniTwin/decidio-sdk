@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "removeComments": true,
+    "strict": true,
+    "target": "es2022",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "lib": [
+      "es2022"
+    ],
+    "skipLibCheck": true,
+    "declaration": false,
+    "outDir": "dist",
+    "rootDir": ".",
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": [
+    "verify.ts",
+    "cli.ts"
+  ]
+}
