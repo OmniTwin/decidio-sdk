@@ -6,6 +6,12 @@ upgrade, and what proved it.
 
 ## Unreleased
 
+## 0.20.1 - published with attestations (2026-11-18)
+
+- **The first Python release from the public repository** (`OmniTwin/decidio-sdk`, PyPI trusted publishing, PEP 740
+  attestations). 0.20.0 never reached PyPI: the upload action's older twine refused its metadata (founder F-1118-S1 (a)).
+  Unchanged from 0.19.0 otherwise; it moves in lockstep with `@decidio/sdk`.
+
 ## 0.20.0 - published with attestations (2026-11-17)
 
 - **Published from a public repository** (Lane S; founder F-1117-6 (a), F-1117-S3 (a)).

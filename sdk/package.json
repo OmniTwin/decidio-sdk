@@ -1,6 +1,6 @@
 {
   "name": "@decidio/sdk",
-  "version": "0.20.0",
+  "version": "0.20.1",
   "description": "One-line approval gate for AI-agent actions. Wrap a risky tool call with guard.protect(); Decidio's policy engine decides proceed | route | block, a human approves routed actions, and every outcome is sealed as a verifiable Authority Receipt.",
   "license": "Apache-2.0",
   "type": "module",

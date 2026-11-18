@@ -83,4 +83,4 @@ __all__ = [
     "check_approval", "approval_refusal", "claim_approval", "claim_refusal", "new_claim_key",
     "binding_material", "request_commitment", "idempotency_key", "invocation_request_key", "own_request_key", "committed_request_json",
 ]
-__version__ = "0.20.0"
+__version__ = "0.20.1"

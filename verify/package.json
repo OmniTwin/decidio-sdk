@@ -1,6 +1,6 @@
 {
   "name": "@decidio/verify",
-  "version": "0.20.0",
+  "version": "0.20.1",
   "description": "Standalone, zero-dependency verifier for Decidio Authority Receipts (W3C VC, Ed25519 did:key). Verify a sealed receipt's signature + content binding + chain order offline — no Decidio dependency. `npx @decidio/verify receipt.json`.",
   "license": "Apache-2.0",
   "type": "module",

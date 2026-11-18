@@ -1,6 +1,6 @@
 [project]
 name = "decidio"
-version = "0.20.0"
+version = "0.20.1"
 description = "One-line approval gate for AI-agent actions — the agent suspends for human approval and resumes, sealing a portable Authority Receipt the customer owns. Decidio gates + records; the agent executes its own action."
 readme = "README.md"
 requires-python = ">=3.9"

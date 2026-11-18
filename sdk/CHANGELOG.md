@@ -7,6 +7,13 @@ allowlist. Each entry names what changed, what a reader must do on upgrade, and 
 
 ## Unreleased
 
+## 0.20.1 - the Python package reaches PyPI (2026-11-18)
+
+- **No code change from 0.20.0.** 0.20.0 published to npm with provenance, but its PyPI upload was refused by the upload action's
+  older twine (Metadata-Version 2.5), so PyPI went from 0.19.0 straight to 0.20.1. The public workflow now uses
+  `pypa/gh-action-pypi-publish` v1.14.3 and checks the Python build with the same twine before anything is published (founder
+  F-1118-S1 (a)). The plugin (`decidio-approvals` 0.15.1) and `enable_guard` pin 0.20.1; the release order is 0.20.0's.
+
 ## 0.20.0 - published with provenance, and the hook guards Monitor and MCP calls (2026-11-17)
 
 - **Published from a public repository, with provenance** (Lane S; founder F-1117-6 (a), F-1117-S3 (a)).

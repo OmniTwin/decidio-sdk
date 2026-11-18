@@ -5,7 +5,7 @@
 openapi: 3.1.0
 info:
   title: Decidio Agent Gate
-  version: 0.20.0   # tracks the SDK release - checked by packages/conformance/manifests.mjs
+  version: 0.20.1   # tracks the SDK release - checked by packages/conformance/manifests.mjs
   description: >
     Authorize an AI-agent action (proceed | route | block), confirm the captured outcome, and
     receive the signed resume webhook when a routed action is decided. Every outcome seals a

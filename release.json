@@ -9,13 +9,13 @@
         "dist/cli.js": "3b1286872656f738837f55ebd577b91e7a0f62bc5cb4e81f108c0f0664b20b81",
         "dist/verify.d.ts": "41dc25709d504360415142db14ffe7cc121a94f92258cc6a7f0cc468a5c120d4",
         "dist/verify.js": "aed709d3561728a5fa90a8b075deb40a680eb99f98d349c3195c02a638f31f75",
-        "package.json": "780d697650060e754e306941b8ce5d8e40529cd4ef65920fa410f1e8083f9d64"
+        "package.json": "16ace2045098d858f1a825614f0361e615e4fccbf4175fc25d55c7ae6f4fe7ac"
       }
     },
     "@decidio/sdk": {
       "dir": "sdk",
       "files": {
-        "CHANGELOG.md": "4569d6f1391260ed6285a5cd42158ff35d8beadb5e7eaf5082a695748db12d56",
+        "CHANGELOG.md": "435d2baa47a1b413b780bbb8de7cec447d5e616c1f654895ac2e8f15a3341b28",
         "LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
         "README.md": "bc611475394c2a00c3be9014f721eb28995eac96ff0ab1938ac8b91d4d1b3260",
         "dist/adapters/_gate.d.ts": "372cb440eca774806887b16f42693eef5d150be1f078f371acc637e962d8c78c",
@@ -46,8 +46,8 @@
         "dist/resume.js": "3488ec475296a49da538edf3cc9e9410fee13a08f09e484e46a148080828359b",
         "dist/signing.d.ts": "d0ac1c41e49d520455c8534098ef90eea6239355c5c0a8b64ec4f0d435bb7597",
         "dist/signing.js": "060b5b08548510a549c02db68d9124dbbd9073cb6bff5081dc9fc84f7ec3408c",
-        "openapi.yaml": "75d05676bb8a8d5094148a9ded9d30096918065d3957b301c9672e35b2bfd6d8",
-        "package.json": "63ac8d53476cec8357044869e20599f13e8121f363021541e02e7b883052b023"
+        "openapi.yaml": "1e184adf7569d25df0840fe24c16e2d8de0f752bca995d21c1a4f2d0c0f31328",
+        "package.json": "4ec92c156aa584974d3008a43b166daabe8beea4de54278496b044e9d8849b76"
       }
     },
     "decidio": {
@@ -56,18 +56,18 @@
         "LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
         "README.md": "1d5dede4b82525ee7b047da41bb297c53a993603bbe9c29d3c8ea4aa0cce3a1f",
         "decidio": "6de4565683f32fecbc23652744c8002549d9684fb72d88411a423e251c198a2d",
-        "package.json": "90a97d38ab096c079d9c9668bfb882d82fcf5b549944f0e06b78c2716df3ba04"
+        "package.json": "343a1f7a75c4441b1d674d2c59d4fb8124acac59dc69ec1aa8486c8bc5f1e2e3"
       }
     }
   },
   "pypi": {
     "dist": "pydist",
     "wheel": [
-      "decidio-0.20.0.dist-info/METADATA",
-      "decidio-0.20.0.dist-info/RECORD",
-      "decidio-0.20.0.dist-info/WHEEL",
-      "decidio-0.20.0.dist-info/entry_points.txt",
-      "decidio-0.20.0.dist-info/licenses/LICENSE",
+      "decidio-0.20.1.dist-info/METADATA",
+      "decidio-0.20.1.dist-info/RECORD",
+      "decidio-0.20.1.dist-info/WHEEL",
+      "decidio-0.20.1.dist-info/entry_points.txt",
+      "decidio-0.20.1.dist-info/licenses/LICENSE",
       "decidio/__init__.py",
       "decidio/__main__.py",
       "decidio/_client.py",
@@ -89,31 +89,31 @@
       "decidio/verify.py"
     ],
     "sdist": [
-      "decidio-0.20.0/.gitignore",
-      "decidio-0.20.0/CHANGELOG.md",
-      "decidio-0.20.0/LICENSE",
-      "decidio-0.20.0/PKG-INFO",
-      "decidio-0.20.0/README.md",
-      "decidio-0.20.0/decidio/__init__.py",
-      "decidio-0.20.0/decidio/__main__.py",
-      "decidio-0.20.0/decidio/_client.py",
-      "decidio-0.20.0/decidio/adapters/__init__.py",
-      "decidio-0.20.0/decidio/adapters/_common.py",
-      "decidio-0.20.0/decidio/adapters/inngest.py",
-      "decidio-0.20.0/decidio/adapters/langgraph.py",
-      "decidio-0.20.0/decidio/adapters/openai.py",
-      "decidio-0.20.0/decidio/adapters/temporal.py",
-      "decidio-0.20.0/decidio/canonical.py",
-      "decidio-0.20.0/decidio/cli.py",
-      "decidio-0.20.0/decidio/errors.py",
-      "decidio-0.20.0/decidio/evidence.py",
-      "decidio-0.20.0/decidio/guard.py",
-      "decidio-0.20.0/decidio/jcs.py",
-      "decidio-0.20.0/decidio/py.typed",
-      "decidio-0.20.0/decidio/resume.py",
-      "decidio-0.20.0/decidio/signing.py",
-      "decidio-0.20.0/decidio/verify.py",
-      "decidio-0.20.0/pyproject.toml"
+      "decidio-0.20.1/.gitignore",
+      "decidio-0.20.1/CHANGELOG.md",
+      "decidio-0.20.1/LICENSE",
+      "decidio-0.20.1/PKG-INFO",
+      "decidio-0.20.1/README.md",
+      "decidio-0.20.1/decidio/__init__.py",
+      "decidio-0.20.1/decidio/__main__.py",
+      "decidio-0.20.1/decidio/_client.py",
+      "decidio-0.20.1/decidio/adapters/__init__.py",
+      "decidio-0.20.1/decidio/adapters/_common.py",
+      "decidio-0.20.1/decidio/adapters/inngest.py",
+      "decidio-0.20.1/decidio/adapters/langgraph.py",
+      "decidio-0.20.1/decidio/adapters/openai.py",
+      "decidio-0.20.1/decidio/adapters/temporal.py",
+      "decidio-0.20.1/decidio/canonical.py",
+      "decidio-0.20.1/decidio/cli.py",
+      "decidio-0.20.1/decidio/errors.py",
+      "decidio-0.20.1/decidio/evidence.py",
+      "decidio-0.20.1/decidio/guard.py",
+      "decidio-0.20.1/decidio/jcs.py",
+      "decidio-0.20.1/decidio/py.typed",
+      "decidio-0.20.1/decidio/resume.py",
+      "decidio-0.20.1/decidio/signing.py",
+      "decidio-0.20.1/decidio/verify.py",
+      "decidio-0.20.1/pyproject.toml"
     ]
   }
 }
