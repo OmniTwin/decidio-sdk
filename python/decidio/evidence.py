@@ -19,9 +19,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-# Every tier the gate can record, weakest to strongest. Mirrors the server's enum exactly;
-# an answer outside this list means this SDK version does not understand the record, and an
-# answer we do not understand is never treated as evidence.
+
+
+
 EVIDENCE_TIERS = (
     "pending",
     "execution_unconfirmed",
@@ -31,8 +31,8 @@ EVIDENCE_TIERS = (
     "independently_reconciled",
 )
 
-# Tiers that attest a COMMITTED execution. `agent_asserted` is deliberately absent: an
-# unproven self-report is not evidence of a commit, and `execution_unconfirmed` says so itself.
+
+
 CONFIRMING = ("sensor_observed", "application_confirmed", "independently_reconciled")
 
 
@@ -41,7 +41,7 @@ def tombstone_tier(ev: Dict[str, Any]) -> str:
     to `execution_unconfirmed` (apps/api agent-confirm.ts, lint-locked), so a body that says otherwise
     is one the current server cannot emit; the tombstone applies the same rule, so reconfirm() -
     which derives from the tier - can never answer "confirmed" where resolve() answered "not
-    confirmed" over the same record (invariant-guard, 0.3.3). Every other tier is stored verbatim."""
+    confirmed" over the same record (0.3.3). Every other tier is stored verbatim."""
     tier = ev.get("evidence_tier")
     if ev.get("execution_report_verified") is False and tier in CONFIRMING:
         return "execution_unconfirmed"
@@ -53,8 +53,8 @@ def describe_tier_gap(captured_response: Any) -> str:
     record id AND a success indication. This is the SERVER's rule, restated here only to
     explain it."""
     r = captured_response if isinstance(captured_response, dict) else {}
-    # Fall through on a MISSING-or-null value, matching the TS `??` chain: a present
-    # `success: False` must survive as False (it is an answer), while a null must not.
+
+
     rid = r.get("id")
     if rid is None:
         rid = r.get("recordId")
@@ -96,8 +96,8 @@ def read_confirm_response(body: Any, signed: bool = False, captured: Any = None,
              "system, or run the action through guard.protect's durable mode, where reports ARE journalled and reconfirm "
              "can replay them.")
     if not isinstance(body, dict) or body.get("ok") is not True or not isinstance(body.get("confirmation"), str):
-        # Retryable: a 2xx with no tier is an availability/shape problem, and the same report sent
-        # again can succeed.
+
+
         return {
             "report_recorded": False,
             "execution_confirmed": False,
@@ -107,8 +107,8 @@ def read_confirm_response(body: Any, signed: bool = False, captured: Any = None,
         }
     tier = body["confirmation"]
     if tier not in EVIDENCE_TIERS:
-        # NOT retryable: the server will answer with the same unrecognised tier every time. This
-        # is a version-skew problem, and re-sending is the one thing that cannot fix it.
+
+
         return {
             "report_recorded": False,
             "execution_confirmed": False,
@@ -116,18 +116,18 @@ def read_confirm_response(body: Any, signed: bool = False, captured: Any = None,
             "report_journalled": bool(journalled),
             "diagnostic": f"the gate reported an evidence tier this SDK does not recognise ({tier!r}) - refusing to treat it as evidence. Upgrade the decidio package; your action DID run, and " + retry,
         }
-    # THE PROOF VERDICT IS AN INPUT TO "IS THIS CONFIRMED", NOT AN ANNOTATION ON IT.
-    #
-    # This block used to run AFTER execution_confirmed was derived, and only added a diagnostic. So
-    # {"confirmation": "application_confirmed", "executionReport": {"verified": False}} produced
-    # execution_confirmed=True alongside execution_report_verified=False, and a caller branching on
-    # the boolean - the obvious thing to branch on - got false assurance from a response that
-    # contradicted itself. Read the verdict first, then derive.
-    #
-    # A confirming tier now requires BOTH a recognised confirming tier AND no explicit proof failure.
-    # Absent reports are untouched: the report is optional, and not sending one is not a failure to
-    # prove. The server applies the same rule at its own end (it caps the recorded tier), so the two
-    # ends agree rather than one compensating for the other.
+
+
+
+
+
+
+
+
+
+
+
+
     rpt = body.get("executionReport")
     has_verdict = isinstance(rpt, dict) and isinstance(rpt.get("verified"), bool)
     proof_explicitly_failed = bool(has_verdict and rpt["verified"] is False)
@@ -135,9 +135,9 @@ def read_confirm_response(body: Any, signed: bool = False, captured: Any = None,
     execution_confirmed = (tier in CONFIRMING) and not proof_explicitly_failed
     out: Dict[str, Any] = {"report_recorded": True, "evidence_tier": tier, "execution_confirmed": execution_confirmed,
                            "report_journalled": bool(journalled)}
-    # The tier-gap explanations only make sense when the tier ITSELF is non-confirming. When a
-    # confirming tier was refused for proof failure, that refusal is the explanation, and the
-    # key-not-configured line would be actively misleading.
+
+
+
     if not execution_confirmed and not proof_explicitly_failed:
         out["diagnostic"] = (
             describe_tier_gap(captured) if signed
@@ -145,9 +145,9 @@ def read_confirm_response(body: Any, signed: bool = False, captured: Any = None,
         )
     if has_verdict:
         out["execution_report_verified"] = rpt["verified"]
-        # WHY it did not verify, as a FIELD. It was folded into prose and nowhere else, so a caller
-        # who wanted to branch on the reason - retry vs re-register vs alert - had to regex an
-        # English sentence.
+
+
+
         if isinstance(rpt.get("reason"), str) and rpt.get("reason"):
             out["execution_report_reason"] = rpt["reason"]
         if proof_explicitly_failed:

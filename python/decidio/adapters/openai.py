@@ -26,7 +26,7 @@ THE BINDING IS THE TOOL CALL (#4B review W2): a routed approval is bound to the 
 call itself - its name, call id and exact argument string (tool_call_request). An item edited after approval,
 or a second identical call (another call id), never rides the approval.
 
-ONE APPROVAL, ONE RUN (0.12.0, founder call 24): apply_verified_resume COLLECTS a person's approval before it approves
+ONE APPROVAL, ONE RUN (0.12.0): apply_verified_resume COLLECTS a person's approval before it approves
 the item (POST /agent/claim, a key random per call), so two concurrent resumes of the same parked state cannot both run
 the tool - the second is told the approval was already used and the RunState is not modified. A request key rides with
 every authorize, keyed on the tool call id: the same call asked again is the same request.
@@ -68,16 +68,16 @@ def authorize_interruptions(
     against a duck-typed RunState, not a live run."""
     resolved: List[Tuple[Any, str, str]] = []
     pending: List[Tuple[Any, str]] = []
-    # Bind EVERY interruption to its tool call (#4B W2) BEFORE the first authorize: one item without a call id
-    # refuses the whole batch while nothing has been sent - a refusal halfway through would leave pending
-    # decisions in Decidio for calls that can never run. (TS twin.)
+
+
+
     batch = []
     for item in state.get_interruptions():
         ctx = describe(item)
         batch.append((item, ctx, tool_call_request(item, ctx)))
     for item, ctx, request in batch:
-        # KEYED ON THE TOOL CALL (0.12.0, 11f; TS twin): the call id names this one call, so the same call asked again - a
-        # retried run, a re-delivered interruption - is the same request to Decidio while it waits.
+
+
         auth = authorize(guard, ctx, request=request, natural_id={"engine": "openai-agents", "callId": request["args"][0]["callId"]})
         if auth.decision == "proceed":
             state.approve(item)
@@ -85,20 +85,20 @@ def authorize_interruptions(
         elif auth.decision == "block":
             state.reject(item, rejection_message=auth.reason or "blocked by policy")
             resolved.append((item, "blocked", auth.decision_id))
-        elif auth.decision == "route":   # a human decides via Decidio; the host parks + resumes
+        elif auth.decision == "route":
             pending.append((item, auth.decision_id))
         else:
-            # EXHAUSTIVE by name, never "everything else is route". An unknown verdict is
-            # refused loudly instead of being quietly filed as a pending human decision that
-            # a resume would later approve.
+
+
+
             raise DecidioBlocked(f"unhandled authorization verdict {auth.decision!r}", auth.decision_id)
     return resolved, pending, False
 
 
-# Renamed in 0.3.0 - the old name read like the other `gate` doors, which execute and confirm.
-# This one only ever authorized. Kept as an alias so 0.2.x callers do not break silently, but note
-# the return is now a 3-tuple: unpacking into two names raises, which is the loud failure we want
-# over a silently dropped confirmation flag.
+
+
+
+
 gate_interruptions = authorize_interruptions
 
 

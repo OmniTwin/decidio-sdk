@@ -101,7 +101,7 @@ export interface PendingAction {
    *  compared with the commitment Decidio returns. Absent on entries parked before 0.7.0 (and by
    *  an agent with no key material), which are checked on Decidio's state alone. */
   requestCommitment?: string;
-  /** THE RUN'S CLAIM KEY (0.12.0, founder call 24): made at random when the action is parked, and the key this parked
+  /** THE RUN'S CLAIM KEY: made at random when the action is parked, and the key this parked
    *  action collects a person's approval with (POST /agent/claim) right before it runs. It lives HERE, with the parked
    *  action, so every resume of it - a worker that restarts, a signal after a lost answer, a claim an operator released -
    *  is the same run to Decidio (`again: true`), while another process that parked its own copy of the request holds its
@@ -281,6 +281,26 @@ export class DecidioDeniedError extends Error {
     super(`[decidio] ${decisionId}: this decision was DENIED (${verdict}) and a denial is terminal — refusing a state write that would move it back toward execution. Nothing may advance out of a denial; if this action should now proceed it needs a NEW request and a new approval.`);
     this.name = "DecidioDeniedError";
   }
+}
+
+/** UNANSWERED: nobody decided this request by its deadline, so no authority was granted. Decidio
+ *  still answers state `rejected` - so an older SDK stops rather than waits - and says why in the typed `closedBy` field
+ *  (`{ reason: "unanswered", deadline }`), never in `reason`. It is NOT a person's no, so it is NOT DecidioRejectedError: nothing
+ *  ran, and the agent may ask again (the same request asked again is a NEW request) if it is still needed - and tell the user.
+ *  Not `expired` either: that is an approval that lapsed before it ran. */
+export class DecidioUnansweredError extends Error {
+  readonly code = "unanswered" as const;
+  constructor(public decisionId: string, public deadline: string | null = null) {
+    super(`[decidio] ${UNANSWERED_WORDS} (decision ${decisionId}${deadline ? `, deadline ${deadline}` : ""}). Nothing was executed.`);
+    this.name = "DecidioUnansweredError";
+  }
+}
+/** Decidio's own words for it (the server's CLOSURE_WORDS.unanswered), so every door of this SDK says the same thing. */
+export const UNANSWERED_WORDS = "UNANSWERED: nobody decided this by its deadline; no authority was granted. Do not perform it; ask again if it is still needed, and tell the user.";
+/** Is this status answer (or a 409 body that carries one) an UNANSWERED request? Reads the typed field only - never `reason`. */
+export function unansweredOf(st: unknown): { deadline: string | null } | null {
+  const c = (st as { closedBy?: { reason?: unknown; deadline?: unknown } | null } | null | undefined)?.closedBy;
+  return c && typeof c === "object" && c.reason === "unanswered" ? { deadline: typeof c.deadline === "string" ? c.deadline : null } : null;
 }
 
 function assertNotDenied(id: string, cur: ExecutionRecord, next: ExecutionState): void {
@@ -968,7 +988,7 @@ export class DecidioSuspendedError extends Error {
  *  recompute over the parked arguments), the gate kept no commitment for a request this SDK bound, or
  *  this process lacks the key material to recompute it. `reason` says which. Nothing ran; the entry
  *  stays parked for inspection. Both members are additive, announced in the changelog. */
-export type ResumeStatus = "executed" | "rejected" | "blocked" | "no_handler" | "unknown" | "indeterminate" | "already_resolved" | "lost_race" | "not_approved" | "request_unverified";
+export type ResumeStatus = "executed" | "rejected" | "blocked" | "unanswered" | "no_handler" | "unknown" | "indeterminate" | "already_resolved" | "lost_race" | "not_approved" | "request_unverified";
 
 function outcomeFromHead(head: ExecutionRecord | null | undefined, decisionId: string, action?: string): ResumeOutcome | undefined {
   if (!head) return undefined;
@@ -1239,7 +1259,9 @@ async function postConfirm(cfg: ResumeConfig, decisionId: string, body: Record<s
  *  them answers neither. `handedBackAt` (when a replay handed the grant to a retry) and `claimed` (0.12.0: whether a
  *  run has collected a person's approval - never by whom) are informational: reading the status claims NOTHING, and
  *  this SDK decides a claim only by claiming (claimApproval). */
-export interface DecisionStatus { state: string; decisionId?: string; receiptId?: string | null; reason?: string | null; requestCommitment?: string | null; spent?: boolean; grantExpiresAt?: string | null; handedBackAt?: string | null; claimed?: boolean }
+export interface DecisionStatus { state: string; decisionId?: string; receiptId?: string | null; reason?: string | null; requestCommitment?: string | null; spent?: boolean; grantExpiresAt?: string | null; handedBackAt?: string | null; claimed?: boolean;
+  /** 0.21.0: set when nobody decided the request by its deadline (state `rejected`): see DecidioUnansweredError. */
+  closedBy?: { reason: "unanswered"; deadline: string | null } | null }
 
 type StatusConfig = { apiUrl: string; apiToken?: string; agentKey?: string; agentDid?: string; fetchImpl?: typeof fetch };
 
@@ -1263,7 +1285,7 @@ async function statusOf(cfg: StatusConfig, decisionId: string): Promise<Decision
  *  commitment_missing           — this SDK bound the request, the gate answered without a commitment.
  *  unverifiable                 — Decidio holds a commitment this process cannot recompute (no or
  *                                 unreadable key material), or answered a malformed one. */
-export type ApprovalCheckCode = "pending" | "unrecognized_state" | "rejected" | "blocked" | "spent" | "expired" | "request_changed" | "commitment_missing" | "unverifiable";
+export type ApprovalCheckCode = "pending" | "unrecognized_state" | "rejected" | "blocked" | "unanswered" | "spent" | "expired" | "request_changed" | "commitment_missing" | "unverifiable";
 
 /** The outcome of the one check. Plain JSON on purpose: an engine that runs it as an activity or a
  *  step (Temporal, Inngest) memoizes it across its serialization boundary. */
@@ -1275,6 +1297,8 @@ export interface ApprovalCheck {
   code?: ApprovalCheckCode;
   /** The server's (tokenized) reason for a rejection, or this SDK's explanation of a refusal. */
   reason?: string;
+  /** 0.21.0, code `unanswered`: the deadline nobody decided it by (ISO), when Decidio named one. */
+  deadline?: string | null;
 }
 
 /** CONFIRM WITH DECIDIO THAT *THIS* REQUEST WAS APPROVED — the check every door runs right before it
@@ -1304,6 +1328,8 @@ export async function checkApproval(
   const state = typeof st?.state === "string" ? st.state : "";
   const serverReason = typeof st?.reason === "string" && st.reason ? st.reason : undefined;
   const no = (code: ApprovalCheckCode, reason?: string): ApprovalCheck => ({ ok: false, decisionId, state, code, ...(reason ? { reason } : {}) });
+  const unanswered = state === "rejected" ? unansweredOf(st) : null;
+  if (unanswered) return { ok: false, decisionId, state, code: "unanswered", reason: UNANSWERED_WORDS, deadline: unanswered.deadline };
   if (state === "rejected") return no("rejected", serverReason);
   if (state === "blocked") return no("blocked", serverReason);
   if (state === "pending") return no("pending", `Decidio records decision ${decisionId} as pending - no human has approved it`);
@@ -1359,7 +1385,7 @@ export type ClaimCode = "already_used" | "expired" | "not_claimable" | "not_foun
 /** The outcome of one claim. Plain JSON on purpose, like ApprovalCheck: an engine that must run HTTP in an activity
  *  (Temporal) returns it across its serialization boundary. */
 export type ClaimOutcome =
-  | { ok: true; decisionId: string; again: boolean; /** Lane L: Decidio's signature over this claim, for the coding-agent hook (cli.ts verifyGateAnswer) */ gateAnswer?: unknown }
+  | { ok: true; decisionId: string; again: boolean; /** Decidio's signature over this claim, for the coding-agent hook (cli.ts verifyGateAnswer) */ gateAnswer?: unknown }
   | { ok: false; decisionId: string; code: ClaimCode; final: boolean; reason: string; status?: number };
 
 /** COLLECT A PERSON'S APPROVAL FOR THIS RUN, ONCE (POST /agent/claim/:decisionId) - the step every door that RUNS on a
@@ -1550,6 +1576,11 @@ export function createDecidioResume(opts: ResumeConfig & { store: PendingStore }
       if (mapped) return finish(mapped);
       return { status: "unknown", decisionId };
     }
+    if (verdict === "rejected" && unansweredOf(prefetched)) {
+      await ctrl.store.markDiscarded(decisionId, "rejected", UNANSWERED_WORDS);
+      await ctrl.store.delete(decisionId);
+      return finish({ status: "unanswered", decisionId, action: pending.action, reason: UNANSWERED_WORDS });
+    }
     if (verdict === "rejected" || verdict === "blocked") {
       await ctrl.store.markDiscarded(decisionId, verdict, reason);
       await ctrl.store.delete(decisionId);
@@ -1615,6 +1646,11 @@ export function createDecidioResume(opts: ResumeConfig & { store: PendingStore }
       throw e;
     }
     if (!check.ok) {
+      if (check.code === "unanswered") {
+        await ctrl.store.markDiscarded(decisionId, "rejected", UNANSWERED_WORDS);
+        await ctrl.store.delete(decisionId);
+        return finish({ status: "unanswered", decisionId, action: pending.action, reason: UNANSWERED_WORDS });
+      }
       if (check.code === "rejected" || check.code === "blocked") {
         await ctrl.store.markDiscarded(decisionId, check.code, check.reason);
         await ctrl.store.delete(decisionId);
@@ -1678,7 +1714,7 @@ export function createDecidioResume(opts: ResumeConfig & { store: PendingStore }
     const state = typeof st?.state === "string" ? st.state : "";
     const reason = typeof st?.reason === "string" && st.reason ? st.reason : undefined;
     if (state === "approved" || state === "auto_approved") return resolveCore({ decisionId: id, verdict: "approved" }, st);
-    if (state === "rejected" || state === "blocked") return resolveCore({ decisionId: id, verdict: state, ...(reason ? { reason } : {}) });
+    if (state === "rejected" || state === "blocked") return resolveCore({ decisionId: id, verdict: state, ...(reason ? { reason } : {}) }, st);
     return { status: "not_approved", decisionId: id, action: pending.action, reason: `Decidio records decision ${id} as ${JSON.stringify(state || null)}; a webhook is a wake-up, not an approval, so nothing ran and the entry stays parked` };
   }
 
@@ -1935,6 +1971,7 @@ export function createDecidioResume(opts: ResumeConfig & { store: PendingStore }
               if (outcome.status === "executed" && outcome.reportRecorded) console.error(`[decidio] resumed ${p.decisionId}: approved → "${p.action}" executed; evidence recorded as ${outcome.evidenceTier}${outcome.executionConfirmed ? "" : " (execution NOT confirmed — see the warning above)"}.`);
               else if (outcome.status === "executed") console.error(`[decidio] resumed ${p.decisionId}: approved → "${p.action}" executed, but its execution report did NOT reach Decidio — recover with: guard.resume.reconfirm("${p.decisionId}")`);
               else if (outcome.status === "rejected") console.error(`[decidio] resumed ${p.decisionId}: REJECTED — the parked "${p.action}" was discarded, nothing executed.`);
+              else if (outcome.status === "unanswered") console.error(`[decidio] resumed ${p.decisionId}: UNANSWERED — nobody decided it by its deadline, so no authority was granted; the parked "${p.action}" was discarded, nothing executed. Ask again if it is still needed.`);
               else if (outcome.status === "blocked") console.error(`[decidio] resumed ${p.decisionId}: BLOCKED ${outcome.reason ? `(${outcome.reason})` : "by policy"} — the parked "${p.action}" was discarded, nothing executed.`);
               workerOpts?.onResolved?.(outcome);
             } catch (e) {

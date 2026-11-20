@@ -37,7 +37,7 @@ interface RunStateLike {
  * the call itself - its name, call id and exact argument string (toolCallRequest). An item edited after
  * approval, or a second identical call (another call id), never rides the approval.
  *
- * ONE APPROVAL, ONE RUN (0.12.0, founder call 24): applyVerifiedResume COLLECTS a person's approval before it
+ * ONE APPROVAL, ONE RUN: applyVerifiedResume COLLECTS a person's approval before it
  * approves the item (POST /agent/claim, a key random per call), so two concurrent resumes of the same parked state
  * cannot both run the tool - the second is told the approval was already used and the RunState is not modified.
  * A request key rides with every authorize, keyed on the tool call id: the same call asked again is the same request.

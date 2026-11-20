@@ -27,20 +27,20 @@ def bind(name: str, guard: Any, fn: Callable[..., Any], describe: Callable[..., 
     if name == "langgraph":
         from . import langgraph as lg
 
-        # functools.wraps for the same reason the core wrapper has it: OpenAI function-calling
-        # and LangChain @tool build the tool schema by INTROSPECTING the function, and an
-        # adapter-bound tool reporting `wrapped(*args, **kwargs)` hands the model an empty schema.
+
+
+
         @functools.wraps(fn)
         def wrapped(*a: Any, **k: Any) -> Any:
             return lg.gate(guard, describe(*a, **k), lambda: fn(*a, **k), evidence=evidence)
         return wrapped
 
     if name in ("inngest", "temporal", "openai"):
-        # These pass an explicit handle at call time (Inngest `step`, Temporal workflow
-        # self, OpenAI RunState), so they can't be a no-arg `protect` drop-in.
-        # The OpenAI door has no gate(): it authorizes interruptions and applies Decidio's answer on
-        # resume (the runtime runs the tool) - pointing at decidio.adapters.openai.gate(...) sent people
-        # to a function that does not exist.
+
+
+
+
+
         entry = ("decidio.adapters.openai.authorize_interruptions(...) and, on resume, "
                  "decidio.adapters.openai.apply_verified_resume(...)") if name == "openai" else f"decidio.adapters.{name}.gate(...)"
         raise ValueError(

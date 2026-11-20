@@ -8,9 +8,9 @@ for _stream in (sys.stdout, sys.stderr):
     try:
         if hasattr(_stream, "reconfigure"):
             _stream.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:  # noqa: BLE001 — a non-reconfigurable stream keeps its encoding
+    except Exception:
         pass
 
-from .cli import main  # noqa: E402 — deliberately after the stream reconfigure (see above)
+from .cli import main
 
 raise SystemExit(main())

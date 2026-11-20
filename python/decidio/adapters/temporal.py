@@ -24,7 +24,7 @@ before `run`. Still pending -> keep waiting for the next signal; rejected/blocke
 refusal. It is HTTP, so it must be an ACTIVITY, never workflow code (determinism) - and it is required
 whenever `authorize_fn` is. (TS twin: temporal.ts.)
 
-ONE APPROVAL, ONE RUN (0.12.0, founder call 24): once Decidio confirms a PERSON'S approval, the workflow collects it
+ONE APPROVAL, ONE RUN (0.12.0): once Decidio confirms a PERSON'S approval, the workflow collects it
 (`claim_fn`, an activity) with a key made from the workflow's own deterministic uuid4 - the same key on a replay or an
 activity retry, a different one in any other run - and runs only if Decidio says this run collected it. Another run
 already used it, or it expired -> DecidioBlocked, and the action never runs. `claim_fn` is required whenever
@@ -65,11 +65,11 @@ def _current_activity_ids() -> Optional[Dict[str, str]]:
         info = activity.info()
         ids = {"workflowId": info.workflow_id, "runId": info.workflow_run_id, "activityId": info.activity_id}
         return ids if all(isinstance(v, str) and v for v in ids.values()) else None
-    except Exception:  # noqa: BLE001 - temporalio absent, or not an activity: the call keys on a fresh id instead
+    except Exception:
         return None
 
 
-# Activity bodies (register these with your worker; they hold the HTTP side effects).
+
 def _authorize_activity(guard: Any, ctx: dict, ids: Optional[Dict[str, str]] = None) -> dict:
     """The authorize ACTIVITY body. The request key (0.12.0, 11f) is keyed on Temporal's own ids for this activity -
     passed as `ids` ({"workflowId", "runId", "activityId"}), or read from the running activity - so Temporal retrying the
@@ -102,13 +102,13 @@ def _workflow_claim_key() -> str:
     try:
         from temporalio import workflow
         return f"run_{workflow.uuid4()}"
-    except Exception:  # noqa: BLE001 - not inside a workflow: a random key, never a shared one
+    except Exception:
         return new_claim_key()
 
 
 def _confirm_activity(guard: Any, decision_id: str, result: Any, evidence: Any = None) -> dict:
-    # RETURN what Decidio recorded (prodsec V035-03): this discarded it, so a 2xx and a 503 both reached
-    # the caller as `confirmation == {}`.
+
+
     return confirm(guard, decision_id, result, evidence=evidence)
 
 
@@ -137,29 +137,29 @@ async def gate(
 
     BETA: the gate semantics are the shared ones; the Temporal integration is verified against
     a mock `wait_condition`, not a live worker."""
-    from temporalio import workflow  # lazy: only needed inside a workflow runtime
+    from temporalio import workflow
 
-    # The approval check is HTTP. A host that moved authorize into an activity (the recommended shape)
-    # must move the check there too - refused BEFORE anything is routed (TS twin).
+
+
     if authorize_fn is not None and verify_fn is None:
         raise ValueError("[decidio] temporal: authorize_fn runs in your activity, so the approval check must too - pass "
                          "verify_fn=lambda decision_id: workflow.execute_activity(verify_activity, ...), where the activity "
                          "returns decidio.adapters.temporal._verify_activity(guard, decision_id, ctx) unchanged. Since 0.7.0 a "
                          "resume signal only wakes the workflow; the approval is confirmed with Decidio before your action "
                          "runs. Nothing was routed or executed.")
-    # ...and the claim (0.12.0; TS twin): the same rule, refused before anything is routed.
+
     if authorize_fn is not None and claim_fn is None:
         raise ValueError("[decidio] temporal: authorize_fn runs in your activity, so the claim must too - pass "
                          "claim_fn=lambda decision_id, claim_key: workflow.execute_activity(claim_activity, ...), where the "
                          "activity returns decidio.adapters.temporal._claim_activity(guard, decision_id, claim_key) unchanged. "
                          "Since 0.12.0 a person's approval is collected once, by the run that acts on it, before your action "
                          "runs. Nothing was routed or executed.")
-    # The allow-list is applied to whatever the ACTIVITY returned — a host-supplied
-    # authorize_fn (the recommended shape) is outside _common.authorize, so this door would
-    # otherwise be the one place an unknown verdict could fall through to execute.
-    # ACTIVITY CALLBACKS MAY BE ASYNC (prodsec V035-03): a coroutine-returning authorize_fn was passed
-    # to the allow-list un-awaited and refused as an unknown verdict; worse, an async confirm_fn was never
-    # awaited, so the action ran and its confirmation body never executed. Await whatever is awaitable.
+
+
+
+
+
+
     _auth_raw = (authorize_fn or (lambda: _authorize_activity(guard, ctx)))()
     if inspect.isawaitable(_auth_raw):
         _auth_raw = await _auth_raw
@@ -174,16 +174,16 @@ async def gate(
         decision_id = auth["decisionId"]
         verify = verify_fn or (lambda did: _verify_activity(guard, did, ctx))
         while True:
-            await workflow.wait_condition(lambda: wf.decidio_resolved(decision_id))   # a WAKE-UP
-            wf._decidio_verdicts.pop(decision_id, None)                                # consumed: the next signal wakes us again
-            # What the signal SAID is not the authority; Decidio's answer for THIS request is. The value
-            # has crossed an activity boundary, so it is validated like any other rehydrated answer.
+            await workflow.wait_condition(lambda: wf.decidio_resolved(decision_id))
+            wf._decidio_verdicts.pop(decision_id, None)
+
+
             _raw = verify(decision_id)
             if inspect.isawaitable(_raw):
                 _raw = await _raw
             check = assert_check_shape(_raw, decision_id)
             if check.get("ok"):
-                # COLLECT A PERSON'S APPROVAL ONCE (0.12.0): only the run that collects it runs it. Never an auto-approval.
+
                 if check.get("state") == "approved":
                     _claim = claim_fn or (lambda did, key: _claim_activity(guard, did, key))
                     _c = _claim(decision_id, _workflow_claim_key())
@@ -195,13 +195,13 @@ async def gate(
                 break
             if check.get("code") != "pending":
                 raise approval_refusal(check)
-            # Decidio records no approval yet: the signal was premature, or forged. Wait for the next one.
+
     result = run()
-    if inspect.isawaitable(result):   # the agent's action may be async — await it (TS awaits too)
+    if inspect.isawaitable(result):
         result = await result
-    # A caller-supplied confirm_fn OWNS the reporting, so an `evidence` mapper cannot be applied
-    # for them - say so rather than ignoring it. The type comment calls confirm_fn "recommended",
-    # so silently dropping the mapper here would hit exactly the callers following the advice.
+
+
+
     if confirm_fn is not None and evidence is not None:
         import sys as _sys_t
         print("[decidio] `evidence` is ignored when you supply confirm_fn - your callback owns the "
@@ -210,13 +210,13 @@ async def gate(
     _outcome = (confirm_fn or (lambda did, r: _confirm_activity(guard, did, r, evidence=evidence)))(auth["decisionId"], result)
     if inspect.isawaitable(_outcome):
         _outcome = await _outcome
-    # ONE RESULT SHAPE ACROSS EVERY DOOR (F-008). This returned the bare value and DISCARDED what
-    # Decidio recorded, so the two states a caller most needs to tell apart - "it ran and was
-    # recorded" and "it ran and Decidio does not know" - were the same return value. A
-    # caller-supplied confirm_fn owns the transport and gives us nothing to read back, so that case
-    # says exactly that rather than reporting an empty confirmation as if it were a real one.
-    # ...unless the callback RETURNED the gate's response (validated with read_confirm_response) - then
-    # that is the outcome, exactly as the TS twin keeps it (prodsec V035-03).
+
+
+
+
+
+
+
     if confirm_fn is not None and not (isinstance(_outcome, dict) and isinstance(_outcome.get("report_recorded"), bool)):
         _outcome = {
             "report_recorded": False, "execution_confirmed": False,

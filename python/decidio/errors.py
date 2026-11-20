@@ -30,6 +30,36 @@ class DecidioRejected(DecidioError):
         self.decision_id = decision_id
 
 
+UNANSWERED_WORDS = ("UNANSWERED: nobody decided this by its deadline; no authority was granted. Do not perform it; ask again if it "
+                    "is still needed, and tell the user.")
+"""Decidio's own words for an unanswered request (the server's CLOSURE_WORDS.unanswered; the TS twin's UNANSWERED_WORDS)."""
+
+
+def unanswered_of(st) -> "dict | None":
+    """Is this status answer (or a 409 body that carries one) an UNANSWERED request? Reads the typed `closedBy` field only - never
+    `reason`. Returns {"deadline": <ISO or None>} or None. TS twin: unansweredOf."""
+    c = st.get("closedBy") if isinstance(st, dict) else None
+    if isinstance(c, dict) and c.get("reason") == "unanswered":
+        return {"deadline": c.get("deadline") if isinstance(c.get("deadline"), str) else None}
+    return None
+
+
+class DecidioUnanswered(DecidioError):
+    """UNANSWERED (0.21.0): nobody decided this request by its deadline, so no authority was granted. Decidio
+    still answers state "rejected" - so an older SDK stops rather than waits - and says why in the typed `closedBy` field
+    ({"reason": "unanswered", "deadline": ...}), never in `reason`. It is NOT a person's no, so it is NOT DecidioRejected: nothing
+    ran, and the agent may ask again (the same request asked again is a NEW request) if it is still needed - and tell the user.
+    Not "expired" either: that is an approval that lapsed before it ran. Mirrors the TS DecidioUnansweredError."""
+
+    code = "unanswered"
+
+    def __init__(self, decision_id: str, deadline: "str | None" = None):
+        when = f", deadline {deadline}" if deadline else ""
+        super().__init__(f"[decidio] {UNANSWERED_WORDS} (decision {decision_id}{when}). Nothing was executed.")
+        self.decision_id = decision_id
+        self.deadline = deadline
+
+
 class DecidioRequestChanged(DecidioBlocked):
     """THE REQUEST CHANGED AFTER APPROVAL (0.7.0). Decidio records an approval for `decision_id`, but it is
     bound (by a keyed commitment) to a DIFFERENT request than the one about to run - the arguments, the
@@ -104,22 +134,27 @@ class DecidioUnsafeArguments(DecidioError, ValueError):
         self.decision_id = decision_id
 
 
-def _side_effect_note(endpoint: str, code=None) -> str:
+def _side_effect_note(endpoint: str, code=None, unanswered: bool = False) -> str:
     """What this failure means for SIDE EFFECTS, by endpoint. Every non-2xx used to end with
     "Nothing was routed or executed", which is TRUE for authorize and for a status read, and FALSE
     for confirm - a confirm fails AFTER the agent's action has already run, so telling that caller
     nothing executed invites them to run the action a second time to "make it happen". This
     sentence is the one an operator acts on; it has to match reality per door."""
     if endpoint.startswith("/agent/confirm"):
-        # THE TWO REFUSALS THAT ARE NOT ABOUT THE REPORT. A 409 here does not mean "your report
-        # failed"; it means the gate refuses to attach execution evidence to this decision at all -
-        # because a human denied it, or because authority was never granted. Saying "only its report
-        # failed" would bury the alarming half: something executed against a decision that was not
-        # approved. TWIN PARITY: this branch shipped on the TypeScript door only, so a Python agent
-        # that ran an action against a DENIED decision was told the one sentence the TS twin
-        # explicitly rejects as false. The shared corpus could not see it either - confirm.json had
-        # no HTTP-code dimension - which is how the gate that exists to stop the twins diverging
-        # stayed green through it.
+
+
+
+
+
+
+
+
+
+
+        if code == "TERMINALLY_DENIED" and unanswered:
+            return (" Nobody decided this request by its deadline, so no authority was granted - and your action appears to have "
+                    "run anyway. Decidio will NOT attach execution evidence to it. Do NOT re-run it - find out why the action "
+                    "executed without an approval.")
         if code == "TERMINALLY_DENIED":
             return (" A human DENIED this decision, and your action appears to have run anyway. Decidio "
                     "recorded the refusal and will NOT attach execution evidence to a denied decision. "
@@ -129,9 +164,9 @@ def _side_effect_note(endpoint: str, code=None) -> str:
                     "attach to it yet. If your action already ran, it ran WITHOUT authority - do NOT "
                     "re-run it; investigate. If you are confirming early, wait for the approval and "
                     "confirm then.")
-        # States the invariant and stops. Whether the report can be re-sent depends on whether the
-        # evidence reached the ledger - which this layer cannot see, and the caller's own
-        # diagnostic already answers correctly.
+
+
+
         return " Your action ALREADY RAN - only its report failed. Do NOT re-run it."
     if endpoint.startswith("/agent/status"):
         return " This call is a read, so it changed nothing; the decision itself is unaffected."
@@ -165,13 +200,13 @@ class DecidioHttpError(DecidioError):
                     "(re-running init for the same agent revokes the previous one). Mint a fresh one: "
                     "python -m decidio init <agent-name>, then restart this process.")
         elif status == 402:
-            # 0.13.0 (launch plan L4; TS twin): a 402 is the workspace's PLAN, in its own words - not a credential, not the
-            # request, and no retry changes it; the server's sentence says what clears it and who can.
+
+
             said = _server_said(body)
             head = (" - your workspace's plan doesn't cover this. It isn't a sign-in problem: signing in again won't change it."
                     + (f" Decidio says: {said}" if said else ""))
         elif _code == "AGENT_REMOVED":
-            # 0.13.0 (Remove agent, call 9; TS twin): this agent was removed - final; a new agent under a new name is the way on.
+
             head = (" - this agent was removed from its workspace, so it can't make new requests (the requests it made before "
                     "stay as they are). Register a new agent under a new name: python -m decidio init <new-name>, then restart "
                     "this process.")
@@ -180,8 +215,8 @@ class DecidioHttpError(DecidioError):
                     if "/agent/confirm" in str(endpoint) else
                     (" - this looks transient; polling again is safe (a status read changes nothing).")
                     if "/agent/status" in str(endpoint) else
-                    # 0.12.0 (11f; TS twin): the SDK retries the authorize itself, with the SAME body - the same request
-                    # key - so its retries were the same request. "A retry creates a NEW request" stopped being true.
+
+
                     (" - this looks transient. This SDK already retried it with the same request key (a request still "
                      "waiting is answered with the one already waiting); retrying is safe and can never double-execute.")
                     if "/agent/authorize" in str(endpoint) else
@@ -189,24 +224,25 @@ class DecidioHttpError(DecidioError):
         else:
             head = (" - the server refused the request itself, so retrying it unchanged will fail the "
                     "same way. Fix the request (or the decision it names) first.")
-        # The CODE decides which confirm advice is true, so it has to be read before the message is
-        # built (above). `body` was already stored and never consulted.
-        super().__init__(f"[decidio] {endpoint} refused this call (HTTP {status})" + head + _side_effect_note(endpoint, _code))
+
+
+        super().__init__(f"[decidio] {endpoint} refused this call (HTTP {status})" + head + _side_effect_note(endpoint, _code, unanswered_of(body) is not None))
         self.status = status
         self.endpoint = endpoint
         self.body = body
         self.retryable = retryable
 
 
-# TS-name aliases — same classes, catchable under the Node names (see module docstring).
+
 DecidioBlockedError = DecidioBlocked
 DecidioRejectedError = DecidioRejected
+DecidioUnansweredError = DecidioUnanswered
 DecidioRequestChangedError = DecidioRequestChanged
 DecidioApprovalUnverifiedError = DecidioApprovalUnverified
 DecidioSuspendedError = DecidioSuspended
 DecidioTimeoutError = DecidioTimeout
 DecidioUnsafeArgumentsError = DecidioUnsafeArguments
-# DecidioHttpError needs no alias — it carries the same name in both SDKs.
+
 
 
 import re as _re
@@ -234,22 +270,22 @@ def decision_id_problem(raw) -> "str | None":
                 "and audit lines - this SDK will not silently trim one)")
     if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in raw):
         return "it contains control characters"
-    # THE SERVER'S GRAMMAR, MIRRORED (class G). The prodsec report asked the SDK to "mirror the
-    # server's actual issued ID grammar" - there wasn't one, every server schema was
-    # z.string().min(1), so the SDK was the STRICTER of the two and the fix had to start there.
-    # apps/api/src/authority/decision-id.ts now defines it and every server door applies it; this
-    # is the mirror. Keeping the two in step matters in BOTH directions: looser here and the SDK
-    # parks, polls and signs an id the server will reject at the next door; stricter here and the
-    # SDK refuses an id the server legitimately issued. The shared corpus
-    # (vectors/decision-id.json) holds all three implementations to the same answers.
+
+
+
+
+
+
+
+
     if len(raw) > 128:
         return f"it is {len(raw)} characters long (limit 128)"
-    # `fullmatch`, NOT `match` with `$`: in Python `$` also matches just before a TRAILING
-    # NEWLINE, so `^...$` accepts an id ending in one while JavaScript and the server reject it.
-    # Unreachable
-    # today only because the control-character loop above fires first - and the server has no
-    # separate control-char check, so the next person who "simplifies this to match the server"
-    # would silently reopen it. The corpus case "a newline (the copy-paste case)" is the backstop.
+
+
+
+
+
+
     if not _re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", raw):
         return ("it is not letters, digits, dot, dash or underscore starting with a letter or "
                 "digit (an opaque id needs nothing else, and every other character is a way to "

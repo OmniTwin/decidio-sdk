@@ -10,7 +10,7 @@ export type AuthorizeVerdict = (typeof AUTHORIZE_VERDICTS)[number];
 /** `requestKey` (0.12.0): the request key this authorize sent, when it sent one. `idempotentReplay` / `openTwin`: the gate
  *  answered with a request that already existed (the same key asked again, or the same keyless request another caller is
  *  waiting on). */
-export interface GateAuth { decision: AuthorizeVerdict; decisionId: string; receiptId?: string; reason?: string; requestKey?: string; idempotentReplay?: boolean; openTwin?: boolean; /** Lane L: Decidio's signature over a proceed, for the coding-agent hook (cli.ts verifyGateAnswer) */ gateAnswer?: unknown }
+export interface GateAuth { decision: AuthorizeVerdict; decisionId: string; /** The record number people see (D·0154), when the gate gives it. */ displayNumber?: string | null; receiptId?: string; reason?: string; requestKey?: string; idempotentReplay?: boolean; openTwin?: boolean; /** Decidio's signature over a proceed, for the coding-agent hook (cli.ts verifyGateAnswer) */ gateAnswer?: unknown }
 
 /** Fail-closed verdict allow-list. Called INSIDE gateAuthorize, so every adapter that authorizes
  *  through the shared gate is protected by construction rather than by remembering — an adapter
@@ -84,7 +84,7 @@ export function assertApprovalCheckShape(raw: unknown, decisionId: string): Appr
   return c as ApprovalCheck;
 }
 
-/** REFUSAL TWINS (chat approvals 2026-10-15 round 2): the one answer outside the allow-list, and only for a caller that ASKED for
+/** REFUSAL TWINS: the one answer outside the allow-list, and only for a caller that ASKED for
  *  the check (`twinCheck`). It is not permission - nothing was created; the caller tells the user and re-asks with their
  *  justification. gateAuthorize (every adapter and the core path) never asks, so it can never receive one. */
 export interface GateDuplicate { decision: "duplicate"; duplicateOf: { decisionId: string; displayNumber?: string | null; refusedAt?: string | null; reason?: string | null } }

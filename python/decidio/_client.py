@@ -29,7 +29,7 @@ class UrllibTransport:
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 return resp.status, resp.read().decode("utf-8")
-        except urllib.error.HTTPError as e:  # 4xx/5xx still carry a body
+        except urllib.error.HTTPError as e:
             return e.code, e.read().decode("utf-8")
 
 
@@ -42,8 +42,8 @@ def _headers(api_token: Optional[str]) -> dict:
 
 def post(transport: Transport, api_url: str, path: str, body: dict, api_token: Optional[str], has_credential: Optional[bool] = None) -> Any:
     from .signing import assert_safe_transport
-    # A signed proof riding the BODY is a credential too (A6, 0.1.12); a caller with a full
-    # config passes the carries_credential predicate instead.
+
+
     if has_credential is None:
         has_credential = bool(api_token) or bool(isinstance(body, dict) and (body.get("requesterIdentity") or body.get("executionReport")))
     assert_safe_transport(api_url, has_credential)
@@ -52,7 +52,7 @@ def post(transport: Transport, api_url: str, path: str, body: dict, api_token: O
         from .errors import DecidioHttpError
         try:
             _body = json.loads(text) if text else None
-        except Exception:  # noqa: BLE001 - keep the raw text when it is not JSON
+        except Exception:
             _body = text
         raise DecidioHttpError(status, path, _body)
     return json.loads(text) if text else {}

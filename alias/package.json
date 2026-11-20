@@ -1,8 +1,8 @@
 {
   "name": "decidio",
-  "version": "0.20.1",
+  "version": "0.21.0",
   "description": "The short name for the Decidio SDK's command line: `npx decidio` runs the same CLI as `npx @decidio/sdk` (this package holds nothing but that hand-off).",
-  "license": "Apache-2.0",
+  "license": "FSL-1.1-ALv2",
   "author": "OmniTwin Technologies Inc.",
   "homepage": "https://decidioai.com/developers/",
   "repository": {
@@ -17,10 +17,11 @@
   "files": [
     "decidio",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "NOTICE"
   ],
   "dependencies": {
-    "@decidio/sdk": "0.20.1"
+    "@decidio/sdk": "0.21.0"
   },
   "engines": {
     "node": ">=20.6"

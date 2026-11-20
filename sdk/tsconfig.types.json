@@ -4,5 +4,18 @@
     "removeComments": false,
     "declaration": true,
     "emitDeclarationOnly": true
-  }
+  },
+  "include": [
+    "build-shims/engine-shims.d.ts",
+    "index.ts",
+    "guard.ts",
+    "resume.ts",
+    "signing.ts",
+    "demo-gate.ts",
+    "inngest.ts",
+    "adapters/_gate.ts",
+    "adapters/langgraph.ts",
+    "adapters/temporal.ts",
+    "adapters/openai.ts"
+  ]
 }

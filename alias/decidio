@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// `npx decidio` — the short name for the Decidio SDK's command line (founder ruling 2026-09-06: fewer keystrokes for a
+// `npx decidio` — the short name for the Decidio SDK's command line (fewer keystrokes for a
 // stranger's first minute). This package holds nothing but this file. It resolves the @decidio/sdk it depends on (pinned
 // to the same version, released in lockstep) and runs that CLI, which reads process.argv exactly as if invoked directly:
 // `npx decidio quickstart --demo` is `npx @decidio/sdk quickstart --demo`. Nothing here is a second implementation.

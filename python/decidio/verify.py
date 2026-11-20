@@ -65,20 +65,20 @@ from .jcs import jcs_bytes
 
 _B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 
-# The one suite we accept. `eddsa-2022` — the name Decidio's pre-2026-08-04 test receipts carry —
-# is NOT a suite the Recommendation defines (it was a pre-REC working-draft name) and is reported
-# separately below so an obsolete receipt is never misreported as a tampered one.
+
+
+
 CRYPTOSUITE = "eddsa-jcs-2022"
 _LEGACY_CRYPTOSUITE = "eddsa-2022"
-# XSD dateTimeStamp - the shape Data Integrity requires of `proof.created`. BYTE-IDENTICAL to the
-# TypeScript twin's XSD_DATE_TIME_STAMP, because a shape both languages can check exactly is the
-# only kind of rule that cannot drift.
-# `\Z`, NOT `$` (invariant-guard, 0.3.5): in Python `$` also matches before a trailing newline, so a signed
-# `created` of "2026-01-01T00:00:00Z\n" read as a valid timestamp here while both TS doors refused it - a
-# three-door divergence on the exact field these checks tighten. `\Z` is the true end of the string.
-# re.ASCII, because Python's `\d` matches every Unicode decimal digit (Arabic-Indic, Devanagari, full-width)
-# and int() accepts them too, while the TS twins' `\d` is ASCII-only - a three-door divergence on this very
-# field (invariant-guard, 0.3.5). With ASCII the two spellings mean the same thing.
+
+
+
+
+
+
+
+
+
 _XSD_DATE_TIME_STAMP = _re_mod.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})\Z", _re_mod.ASCII)
 _XSD_FIELDS = _re_mod.compile(r"^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d+)?(Z|([+-])(\d{2}):(\d{2}))\Z", _re_mod.ASCII)
 
@@ -187,7 +187,7 @@ def read_record_kind(record_canonical: str) -> Optional[str]:
     receipt's own bytes, never fetched (TS twin readRecordKind)."""
     try:
         p = json.loads(record_canonical)
-    except Exception:  # noqa: BLE001 - not JSON: no kind to read
+    except Exception:
         return None
     kind = p.get("recordKind") if isinstance(p, dict) else None
     return kind if isinstance(kind, str) else None
@@ -212,7 +212,7 @@ def read_sealed_state(record_canonical: str) -> Optional[Dict[str, Any]]:
     """
     try:
         p = json.loads(record_canonical)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
     if not isinstance(p, dict):
         return None
@@ -225,17 +225,17 @@ def read_sealed_state(record_canonical: str) -> Optional[Dict[str, Any]]:
         s["confirmation"] = confirmation.get("status")
     if "ratifiedBy" in p:
         s["ratified"] = p.get("ratifiedBy") is not None
-    nominated = p.get("nominatedDeciders", p.get("deciders"))   # schemaVersion 2 name, then the v1 name
+    nominated = p.get("nominatedDeciders", p.get("deciders"))
     if isinstance(nominated, list):
         s["nominated_deciders"] = len(nominated)
     return s or None
 
 
 def verify_receipt(vc: Dict[str, Any], expected_issuer: Optional[str] = None) -> Dict[str, Any]:
-    # AN EXPLICIT EMPTY PIN IS AN ERROR, NOT "UNPINNED" - twin of the TS guard. expected_issuer was
-    # tested for truthiness, so verify_receipt(vc, "") silently ran an UNPINNED check and returned
-    # valid, and "" is exactly what an unset environment variable interpolates to. Omission (None)
-    # still means deliberately unpinned; a supplied-but-blank pin is refused.
+
+
+
+
     if expected_issuer is not None and expected_issuer.strip() == "":
         return {"valid": False, "issuer": str(vc.get("issuer") or ""), "content_bound": False, "record_id": None,
                 "reason": 'an empty --issuer/expected_issuer was supplied - that is not an unpinned check, it is a '
@@ -243,11 +243,11 @@ def verify_receipt(vc: Dict[str, Any], expected_issuer: Optional[str] = None) ->
                           'to verify unpinned on purpose.'}
     try:
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-    except ImportError as e:  # pre-base-dependency installs only (cryptography ships with decidio now)
-        # Belt and braces for old installs: a raw ModuleNotFoundError traceback here reads as a
-        # crash in the product's advertised built-in verifier. One clean line naming the exact
-        # fix — and OUTSIDE the guard below, so a broken environment is never dressed as an
-        # INVALID verdict.
+    except ImportError as e:
+
+
+
+
         raise ImportError("verifying needs the `cryptography` package — it ships with decidio now; upgrade or reinstall: pip install --upgrade decidio") from e
 
     try:
@@ -256,9 +256,9 @@ def verify_receipt(vc: Dict[str, Any], expected_issuer: Optional[str] = None) ->
         if not did.startswith("did:key:z"):
             return {"valid": False, "issuer": did, "content_bound": False, "reason": "unsupported issuer DID (expected did:key Ed25519)"}
         if expected_issuer and did != expected_issuer:
-            # Issuer-pin failure must not throw away what was learned (parity
-            # with the TS verifier): report the record id and the true content-binding result so
-            # a wrong pin doesn't read as content tampering.
+
+
+
             cs0 = _field(vc, "credentialSubject") or {}
             rc0 = _field(cs0, "recordCanonical")
             ch0 = _field(cs0, "contentHash")
@@ -268,8 +268,8 @@ def verify_receipt(vc: Dict[str, Any], expected_issuer: Optional[str] = None) ->
             return {"valid": False, "issuer": did, "content_bound": bound0,
                     "record_id": rid0 if isinstance(rid0, str) else None,
                     "reason": "issuer DID is not the expected issuer (the receipt itself may be internally consistent - it was just not issued by who you pinned)"}
-        # did:key Ed25519 = multicodec 0xed01 followed by the 32-byte key (CID v1.0 §2.2.2). The key
-        # is read straight out of the identifier, which is why no resolver and no network are needed.
+
+
         mc = _b58decode(did[len("did:key:z"):])
         if len(mc) < 2 or mc[0] != 0xED or mc[1] != 0x01:
             return {"valid": False, "issuer": did, "content_bound": False, "reason": "issuer DID is not Ed25519"}
@@ -277,10 +277,10 @@ def verify_receipt(vc: Dict[str, Any], expected_issuer: Optional[str] = None) ->
 
         cs = _field(vc, "credentialSubject")
         cs = {} if cs is None else cs
-        # TYPE discipline FIRST — match both TypeScript verifiers. A bool/number/array prevHash must
-        # be reported as malformed, never coerced into content-binding (JS ToString would silently
-        # accept out-of-contract files Python used to accept while TS rejected — guard NEEDS-HUMAN
-        # 2026-08-07). Decidio's issuer only ever emits string|null.
+
+
+
+
         prev = _field(cs, "prevHash")
         if prev is not None and not isinstance(prev, str):
             return {"valid": False, "issuer": did, "content_bound": False, "record_id": _field(cs, "recordId"),
@@ -288,12 +288,12 @@ def verify_receipt(vc: Dict[str, Any], expected_issuer: Optional[str] = None) ->
         if not isinstance(_field(cs, "contentHash"), str) or not isinstance(_field(cs, "recordId"), str):
             return {"valid": False, "issuer": did, "content_bound": False,
                     "reason": "recordId and contentHash must be strings"}
-        # There is deliberately NO check here that recordId/dNumber avoid a '|' character. The old
-        # format signed a pipe-delimited tuple, so a '|' inside a field made the signed message
-        # ambiguous and had to be rejected by hand. Under eddsa-jcs-2022 the signing input is the
-        # RFC 8785 canonical form of the whole document, in which every string is JSON-quoted and
-        # escaped — the unambiguous-signing-input rule the old guard encoded is now satisfied
-        # STRUCTURALLY by canonicalisation, for every field, not just the two we remembered to check.
+
+
+
+
+
+
         canonical = _field(cs, "recordCanonical")
         content_bound = isinstance(canonical, str) and _derive_hash(canonical, prev) == _field(cs, "contentHash")
         if not content_bound:
@@ -305,21 +305,21 @@ def verify_receipt(vc: Dict[str, Any], expected_issuer: Optional[str] = None) ->
         base = {"issuer": did, "content_bound": content_bound, "record_id": _field(cs, "recordId")}
         if _field(proof, "type") != "DataIntegrityProof":
             return {"valid": False, **base, "reason": "unsupported proof (expected DataIntegrityProof)"}
-        # Receipts sealed before 2026-08-04 used a pre-standard Decidio format under the name
-        # `eddsa-2022` (a pre-Recommendation working-draft name) whose signature covered a bespoke
-        # delimited string rather than the canonical document. Say so plainly — reporting it as an
-        # invalid signature would misrepresent an obsolete format as evidence of tampering.
+
+
+
+
         if _field(proof, "cryptosuite") == _LEGACY_CRYPTOSUITE:
             return {"valid": False, **base, "reason": "receipt uses Decidio's pre-standard format (eddsa-2022); not verifiable under the published spec — ask for a re-sealed receipt"}
         if _field(proof, "cryptosuite") != CRYPTOSUITE:
             return {"valid": False, **base, "reason": f"unsupported cryptosuite (expected {CRYPTOSUITE})"}
-        # THE PROOF OPTIONS ARE PART OF THE CLAIM, not decoration - see the TypeScript twin. This
-        # checked that the signature was made by the issuer's key and stopped there, so a document
-        # whose own proof said it was made for a DIFFERENT purpose, by an UNRELATED key id, with no
-        # time at all, still read as an issuance. "A valid signature" and "an assertion by this
-        # issuer, about this credential, at a stated time" are different statements, and only the
-        # second is what a receipt claims to be. All three fields sit inside the signed proof
-        # config, so this cannot break a genuine receipt.
+
+
+
+
+
+
+
         _purpose = _field(proof, "proofPurpose")
         if _purpose != "assertionMethod":
             return {"valid": False, **base,
@@ -328,18 +328,18 @@ def verify_receipt(vc: Dict[str, Any], expected_issuer: Optional[str] = None) ->
         if not isinstance(_vm, str) or not _vm.startswith(f"{did}#"):
             return {"valid": False, **base,
                     "reason": f"verificationMethod {_vm!r} does not identify a key of the issuer ({did}) - the signature was checked against the issuer's key, but the proof names a different one"}
-        # did:key has exactly ONE method identifier (the fragment repeats the multibase key id); a proof
-        # naming any other fragment is not conforming, whoever signed it (prodsec V033-03; TS twin).
+
+
         _msid = did[len("did:key:"):]
         if _vm != f"{did}#{_msid}":
             return {"valid": False, **base,
                     "reason": f"verificationMethod {_vm!r} is not the issuer's did:key method identifier (expected {did}#{_msid}) - did:key has exactly one verification method, and this proof names a fragment that does not exist"}
-        # SHAPE-CHECKED, not `.strip()`. The first version of this used `Date.parse` in TypeScript
-        # and a bare `.strip()` here, so the two doors disagreed on "banana", "   x   " and
-        # "20260830" - TS refused them, this one called them VALID, which is the class the check
-        # exists to close. Both smokes tested only a REMOVED `created`, which both halves catch
-        # identically, so nothing saw it. XSD dateTimeStamp is what the spec asks for and what a
-        # regex can hold both doors to exactly. Keep this pattern byte-identical to the TS twin.
+
+
+
+
+
+
         _created = _field(proof, "created")
         if not isinstance(_created, str) or not _XSD_DATE_TIME_STAMP.match(_created):
             return {"valid": False, **base,
@@ -347,34 +347,34 @@ def verify_receipt(vc: Dict[str, Any], expected_issuer: Optional[str] = None) ->
         if not _is_calendrical_date_time_stamp(_created):
             return {"valid": False, **base,
                     "reason": f'proof "created" timestamp {_created!r} is not a real date-time (a field is out of range) - a sealed assertion cannot have been made at a time that does not exist'}
-        # DELIBERATE STRICTNESS — the one place this verifier is knowingly *stricter* than the TS one.
-        # proofValue must BE a string, never coerced. Because proofValue is the ONLY proof field NOT
-        # covered by the signature (it is stripped out to form the proof config), a coercing check
-        # let a rewritten JSON type — ["z…"] instead of "z…" — yield a DIFFERENT receipt file that
-        # still carried a passing signature. Two byte-different files that both read VALID is a
-        # malleability hole. Both TypeScript verifiers now type-check it the same way (closed
-        # 2026-08-04); this check is what keeps the three implementations agreeing.
+
+
+
+
+
+
+
         pv = _field(proof, "proofValue")
         if not isinstance(pv, str) or not pv.startswith("z"):
             return {"valid": False, **base, "reason": "missing/invalid proofValue (expected base58-btc multibase)"}
 
-        # §3.3.2: strip `proof` from the document and `proofValue` from the proof options. When the
-        # proof carries @context it must be a PREFIX of the document's, and the proof's version is
-        # then the one canonicalised — that check stops a forger substituting a different context.
-        # Both copies are SHALLOW and fresh, exactly like TS object rest: the caller's receipt is
-        # never mutated, even though we reassign @context below.
+
+
+
+
+
         unsecured_document = {k: v for k, v in vc.items() if k != "proof"}
         proof_config = {k: v for k, v in proof.items() if k != "proofValue"}
         if proof_config.get("@context") is not None:
             pc = _as_context_list(proof_config.get("@context"))
             dc = _as_context_list(unsecured_document.get("@context"))
-            # STRICTER THAN THE REC, matching the TypeScript verifiers. §3.3.2 requires only that the
-            # document's @context START WITH the proof's, then replaces it before hashing — leaving
-            # any extra document entries unsigned. That is exploitable with no key: append an entry
-            # (or an inline term-redefining object) to a genuine receipt and it still reads VALID, so
-            # a JSON-LD consumer can be shown a remapped record this verifier certified. Requiring
-            # equal length closes it and can never reject a genuine Decidio receipt, because the
-            # issuer always copies the document's @context into the proof unchanged.
+
+
+
+
+
+
+
             if len(dc) != len(pc):
                 return {"valid": False, **base, "reason": "@context does not match between document and proof (one carries entries the other does not cover)"}
             for i, want in enumerate(pc):
@@ -383,46 +383,46 @@ def verify_receipt(vc: Dict[str, Any], expected_issuer: Optional[str] = None) ->
             unsecured_document["@context"] = proof_config.get("@context")
 
         signature = _b58decode(pv[1:])
-        # Canonicalise OUTSIDE the verify guard on purpose. A document JCS cannot represent (e.g. an
-        # integer past 2^53 — decidio.jcs refuses to guess which double the signer meant) is a
-        # different finding from a signature that does not match, and squashing it into "signature
-        # does not verify" would misreport the cause exactly the way the eddsa-2022 case must not.
+
+
+
+
         try:
             signing_input = _hash_data(unsecured_document, proof_config)
         except ValueError as e:
-            # DIAGNOSTIC PARITY with the TS verifiers: the number-precision
-            # refusal (an integer beyond 2^53 / not exactly representable — jcs PY-TRAP 8) fires
-            # AFTER content binding passed and the record id was read, so reporting
-            # `record: ?  content-bound: False` here was factually wrong about both. Keep the
-            # refusal as the reason; report what was actually learned, exactly like the
-            # wrong-issuer branch. Any other canonicalisation failure (e.g. a lone surrogate)
-            # still falls through to the generic handler, matching TS's outer catch.
+
+
+
+
+
+
+
             if str(e).startswith("JCS: integer"):
-                # SAME reason string as the Node verifiers, not the internal JCS text — this
-                # module's doctrine is normalised reason strings, and wording that diverges
-                # across languages breaks an auditor's diff.
+
+
+
                 return {"valid": False, **base, "reason": "receipt contains an integer beyond 2^53 - its exact signed value cannot be reproduced, so it is not verifiable"}
             raise
         try:
-            # The 64 bytes are signed DIRECTLY — no second hash. `cryptography` raises
-            # InvalidSignature (and ValueError for a wrong-length signature) where node's
-            # crypto.verify returns false, so every failure is normalised to the same reason string
-            # the TS verifier gives; an auditor comparing the two must not see a stack-trace text
-            # in one language and a plain sentence in the other.
+
+
+
+
+
             pub.verify(bytes(signature), signing_input)
             valid = True
-        except Exception:  # noqa: BLE001
+        except Exception:
             valid = False
-        # Read the sealed decision state only once the content is bound and the signature checked,
-        # so what we report back is what the ISSUER signed — never an attacker-supplied field on an
-        # otherwise-rejected document. Same ordering as the TS twin.
+
+
+
         rc = _field(cs, "recordCanonical")
         sealed_state = read_sealed_state(rc) if (valid and content_bound and isinstance(rc, str)) else None
         return {"valid": valid, **base, "d_number": _field(cs, "dNumber"), "prev_hash": _field(cs, "prevHash"),
                 "reason": None if valid else "signature does not verify against issuer DID",
                 "sealed_state": sealed_state,
-                "record_kind": (read_record_kind(rc) if (valid and content_bound and isinstance(rc, str)) else None)}   # never an attacker-supplied field on a rejected document
-    except Exception as e:  # noqa: BLE001
+                "record_kind": (read_record_kind(rc) if (valid and content_bound and isinstance(rc, str)) else None)}
+    except Exception as e:
         return {"valid": False, "issuer": str(_field(vc, "issuer") or ""), "content_bound": False, "reason": str(e)}
 
 
@@ -431,8 +431,8 @@ def verify_chain(vcs: List[Dict[str, Any]], expected_issuer: Optional[str] = Non
     receipt must independently verify. Proves tamper-evident ordering."""
     if not vcs:
         return {"valid": False, "length": 0, "reason": "no receipts supplied"}
-    # ONE ISSUER END TO END, even unpinned (parity with the TS verifier): hash linkage alone would
-    # let a second issuer splice its receipts onto a genuine prefix and still read "intact".
+
+
     issuers = {str(_field(vc, "issuer") or "") for vc in vcs}
     if len(issuers) > 1:
         return {"valid": False, "length": 0, "reason": f"these receipts come from {len(issuers)} DIFFERENT issuers - a chain must be issued end to end by one issuer"}
@@ -444,15 +444,15 @@ def verify_chain(vcs: List[Dict[str, Any]], expected_issuer: Optional[str] = Non
             return {"valid": False, "length": i, "reason": f'receipt {i} ({r.get("record_id") or "?"}) invalid: {r.get("reason")}'}
         cs = _field(vc, "credentialSubject")
         cs = {} if cs is None else cs
-        # SEGMENT semantics: the FIRST receipt supplied is the anchor (demanding genesis made two
-        # consecutive REAL receipts report "broken"). genesis = None/missing; "" is a real value.
+
+
         if i == 0:
             anchor = "genesis" if _field(cs, "prevHash") is None else "segment"
         elif _field(cs, "prevHash") != prev:
-            # Both receipts verified INDIVIDUALLY by this point, so a prevHash mismatch has two
-            # honest readings — a gap (receipts between them are simply not in this set: the
-            # common case) or a wrong order/content. Blaming "the chain is broken" alone read as
-            # tampering; say what is actually known.
+
+
+
+
             return {"valid": False, "length": i, "reason": f"receipt {i} does not follow receipt {i - 1} directly (prevHash mismatch - either receipts between them are missing from this set, or the order/content is wrong; each receipt shown above verified individually)"}
         prev = _field(cs, "contentHash")
     return {"valid": True, "length": len(vcs), "anchor": anchor}
@@ -472,9 +472,9 @@ def _parse_strict(text: str, path: str) -> Dict[str, Any]:
         seen = set()
         for key, _value in pairs:
             if key in seen:
-                # ASCII only: this string is printed by a CLI an auditor may run on a console whose
-                # encoding is not UTF-8 (a Windows cp1252 terminal renders an em dash as mojibake),
-                # and a garbled refusal reason undermines the very thing the tool exists to convey.
+
+
+
                 raise ValueError(
                     f"{path}: duplicate JSON key {key!r} - RFC 8785 requires duplicate-free input, "
                     "and different parsers disagree on which value is real"
@@ -492,15 +492,15 @@ def _load_strict(path: str) -> Dict[str, Any]:
         return _parse_strict(fh.read(), path)
 
 
-# THE BUILT-IN TRUST ANCHORS (founder-approved 2026-09-24; twin of KNOWN_ISSUERS in packages/decidio-verify/verify.ts,
-# and the three-door conformance gate fails if the doors disagree). A receipt names its own issuer, so pinning to that
-# field is circular - any key can sign a file that names itself - and until now the only alternative was asking every
-# reader to paste a DID. These are the issuers every CLI door trusts out of the box: Decidio's own deployments, each of
-# which publishes its DID at https://<host>/api/did - staging (the lab) and production (launch plan L9; production's DID
-# read from its live endpoint on 2026-11-10, its key Ed25519 in AWS KMS, never exported - F-1110-L4). The TS twin's `alsoAt` (a deployment's other API addresses) serves only the TS sdk's grant check, so
-# it is not carried here; the release workflow compares the two lists by host and DID. NEVER the verification kit's published SAMPLE issuer: its
-# private key is public on purpose, so trusting it by default would verify any forgery signed with it. A self-hosted
-# deployment is not listed by design - its DID is pinned with --issuer (or remembered by the SDK at sign-in).
+
+
+
+
+
+
+
+
+
 KNOWN_ISSUERS: Tuple[Mapping[str, str], ...] = (
     MappingProxyType({"did": "did:key:z6MkmLGeR5NjJ87a1yU5ygqju49CtnUrt38esqM54Y9tXnKq", "host": "decidio-api.onrender.com", "label": "Decidio staging lab"}),
     MappingProxyType({"did": "did:key:z6MkpBwpAT98VAqg2UpiSGJZieg7DGQpoNkdioDUEo4kQXnJ", "host": "decidio-prod-api.onrender.com", "label": "Decidio production"}),
@@ -528,10 +528,10 @@ The same implementation runs as `python -m decidio verify` (the sdk door)."""
 
 def main(argv: Optional[List[str]] = None) -> int:
     args = list(argv if argv is not None else sys.argv[1:])
-    # An auditor's first two commands are --help and --version (the auditor
-    # tool had neither). Handled before anything else — before flags, before files; both exit 0
-    # on stdout. NO ARGS gets the same usage block on stderr, exit 2 (mirrors decidio-verify's
-    # cli.ts exactly).
+
+
+
+
     if args and args[0] in ("--version", "-v", "-V", "version"):
         from . import __version__
         print(__version__)
@@ -555,7 +555,7 @@ def built_in_anchor(files: List[str], read_text: Callable[[str], str], known: Se
     for f in files:
         try:
             vc = _parse_strict(read_text(f), f)
-        except Exception:  # noqa: BLE001 - unparseable: the verdict below reports it as INVALID
+        except Exception:
             continue
         d = str(_field(vc, "issuer") or "") if isinstance(vc, dict) else ""
         if d not in claimed:
@@ -595,13 +595,13 @@ def run(args: List[str], command: str = "python -m decidio.verify",
     With no --issuer the trust anchor is `remembered()` - the sdk door passes the DID this computer remembered for
     its configured host, as (did, where-it-came-from), or None; it raises ValueError(message) when that store cannot
     be read - and then the built-in KNOWN_ISSUERS; `no_anchor_hint` is the door's extra line when neither applies."""
-    # STRICT flags, mirroring packages/decidio-verify/cli.ts (a mistyped or
-    # `=`-form flag was silently dropped, so `--issuer=did:...` ran an UNPINNED check and reported
-    # VALID exit 0 — the exact outcome the flag existed to prevent). On a verifier, a swallowed
-    # flag is a forged green light: refuse anything not understood, before reading any file.
-    # `--issuer` asserts the receipt was issued by THIS DID (Decidio's published issuer), not
-    # merely validly self-signed by some key.
-    # (see _parse_strict for the duplicate-key refusal, also mirrored from the TS CLI)
+
+
+
+
+
+
+
     usage = f"usage: {command} [--issuer <did:key>] <receipt.json> [more.json ...]   (or --allow-unpinned)"
     expected_issuer: Optional[str] = None
     allow_unpinned = False
@@ -614,21 +614,21 @@ def run(args: List[str], command: str = "python -m decidio.verify",
             i += 1
             continue
         if a == "--":
-            # `--` ends option parsing: everything after it is a FILE, dash-leading names included
-            # (parity with both TS doors; first-run review of 0.3.5).
+
+
             files.extend(args[i + 1:])
             break
         if a == "--issuer":
             v = args[i + 1] if i + 1 < len(args) else None
-            # An EMPTY value is the unset-CI-variable case: silently verifying unpinned and
-            # exiting 0 would hand a forged receipt a green light.
+
+
             if v is None or v == "" or v.startswith("-"):
                 print("✘ --issuer needs a did:key value (a bare or EMPTY --issuer must not silently verify unpinned).", file=sys.stderr)
                 return 2
-            # A REPEATED PIN IS AN AMBIGUOUS PIN (F-014). Last-one-wins is the wrong rule on a
-            # verifier: a script that appends --issuer from two sources (a config default and a CI
-            # override) silently checks against ONE of them and reports VALID, which is a green
-            # light nobody chose. Identical repeats are harmless and stay allowed.
+
+
+
+
             if expected_issuer is not None and expected_issuer != v:
                 print(f"✘ --issuer given twice with different values ({expected_issuer} then {v}) — refusing to choose which one you meant to pin to.", file=sys.stderr)
                 return 2
@@ -654,13 +654,13 @@ def run(args: List[str], command: str = "python -m decidio.verify",
     if not files:
         print(usage, file=sys.stderr)
         return 2
-    # PINS BY DEFAULT (0.5.0). An unpinned run is a deliberate, named choice - never the thing that happens when a
-    # variable is unset. Both at once is an ambiguous instruction, refused like a disagreeing repeated pin.
+
+
     if expected_issuer is not None and allow_unpinned:
         print("✘ --allow-unpinned and --issuer together — an unpinned check and a pinned one are different questions; ask one.", file=sys.stderr)
         return 2
-    # An unreadable file is an I/O problem, not a cryptographic verdict (a
-    # typo'd filename got the same "INVALID" a forged receipt gets).
+
+
     texts: Dict[str, str] = {}
     for f in files:
         try:
@@ -670,9 +670,9 @@ def run(args: List[str], command: str = "python -m decidio.verify",
             detail = "no such file" if isinstance(e, FileNotFoundError) else (e.strerror or str(e))
             print(f"✘ cannot read {f}: {detail} (nothing was verified)", file=sys.stderr)
             return 1
-    # NO --issuer: THE TRUST ANCHOR (3A). The sdk door's remembered DID for its host, else the built-in anchor - never the
-    # receipt's own issuer field (circular: any key can sign a file that names itself). A receipt from an issuer
-    # outside both is refused here, as an unpinned run always was.
+
+
+
     anchor_note: Optional[str] = "--issuer" if expected_issuer is not None else None
     if expected_issuer is None and not allow_unpinned:
         mem: Optional[Tuple[str, str]] = None
@@ -694,14 +694,14 @@ def run(args: List[str], command: str = "python -m decidio.verify",
             expected_issuer = pick["anchor"]["did"]
             anchor_note = f'built in: {pick["anchor"]["label"]}, {pick["anchor"]["host"]}'
     try:
-        import cryptography  # noqa: F401 — Ed25519; ships with the base package (old installs listed it as an extra)
+        import cryptography
     except ImportError:
         print("✘ the open verifier needs the `cryptography` package — it ships with decidio now; upgrade or reinstall: pip install --upgrade decidio", file=sys.stderr)
         return 1
-    # PER-FILE isolation (parity with the TS verifiers): one corrupt receipt must never abort
-    # the batch or hide the other verdicts — an auditor sweeping fifty files deserves forty-nine
-    # answers and ONE named failure. Parse refusals are verdicts and stay on stdout.
-    # THE TRUST ANCHOR FIRST (3A; twin of runVerify): a verdict is never read without knowing what it was pinned to.
+
+
+
+
     if expected_issuer:
         print(f"trust anchor: {expected_issuer}  ({anchor_note or '--issuer'})")
     else:
@@ -726,16 +726,16 @@ def run(args: List[str], command: str = "python -m decidio.verify",
         all_ok = all_ok and r["valid"]
         any_valid = any_valid or r["valid"]
         print(f'{"VALID  " if r["valid"] else "INVALID"}  {f}')
-        # The louder caveat matches runVerify in the TS twin: an unpinned VALID is a much weaker
-        # claim than it reads, and the old one-liner undersold that.
+
+
         unpinned = "" if expected_issuer else "  (UNPINNED - this only proves internal consistency; ANY keyholder could have issued it. Pass --issuer <your workspace DID> to verify WHO)"
         print(f'    record: {r.get("record_id") or "?"}   kind: {r.get("record_kind") or "?"}   issuer: {r["issuer"]}{unpinned}')
-        # "true"/"false", not Python's True/False repr — the two CLIs' result lines must DIFF
-        # cleanly against each other.
+
+
         bound = "true" if r["content_bound"] else "false"
         print(f'    content-bound: {bound}' + (f'   reason: {r.get("reason")}' if r.get("reason") else ""))
-        # AS SEALED, and labelled as such. See read_sealed_state's docstring for why this is printed
-        # rather than left in the JSON for the reader to find. Field order matches the TS twin.
+
+
         s = r.get("sealed_state")
         if s:
             bits: List[str] = []
@@ -749,16 +749,16 @@ def run(args: List[str], command: str = "python -m decidio.verify",
                 bits.append(f'nominated deciders: {s["nominated_deciders"]}')
             if bits:
                 print("    as sealed - " + "   ".join(bits))
-            # "ratified: yes, deciders: 0" is CORRECT and reads as a contradiction - see the
-            # TypeScript twin. `deciders` is the list nominated in ADVANCE (empty when an agent's
-            # request is routed rather than pre-assigned); the person who actually decided is the
-            # RATIFIER. The record was never missing the human; the field names do not say which is
-            # which, and evidence that needs a footnote is evidence not yet doing its job.
-            # SAYS ONLY WHAT THE PAIR SUPPORTS - see the TypeScript twin. The first version added
-            # "this was routed, and a human ratified it"; neither clause follows from
-            # `ratified && not deciders`, and both are FALSE on records this verifier is handed (a
-            # Slack-captured human decision was never routed; a sealed DENIAL carries a ratifier
-            # too, so it printed "a human ratified it" beside `gate: blocked`).
+
+
+
+
+
+
+
+
+
+
             if s.get("ratified") is True and s.get("nominated_deciders") == 0:
                 print('      ("nominated deciders" lists anyone nominated in ADVANCE - none here; the person '
                       'who adjudicated is recorded separately, as the ratifier)')
@@ -775,12 +775,12 @@ def run(args: List[str], command: str = "python -m decidio.verify",
             note = ""
         print(f'\nchain: {"intact" if c["valid"] else "broken"} ({c["length"]}/{len(vcs)})' + note
               + (f' - {c["reason"]}' if c.get("reason") else ""))
-    # WHAT VALID MEANS, stated rather than left to inference. Twin of runVerify's closing block.
-    #
-    # A genuine, issuer-pinned receipt verifies VALID for an action that never executed - correctly,
-    # because the seal covers the approval, not the outcome. Every individual claim the verifier
-    # makes is true; the trap is what it does NOT say, which an engineer fills in as "approved and
-    # executed". One paragraph removes the whole class.
+
+
+
+
+
+
     if any_valid:
         print("\nwhat VALID proves: the CLAIMS in this record were sealed by that issuer and none of"
               "\n  them has changed since. NOT the bytes: the signature covers the record's CANONICAL"
@@ -797,13 +797,13 @@ def run(args: List[str], command: str = "python -m decidio.verify",
 
 
 if __name__ == "__main__":
-    # UTF-8 out on THIS door too (`python -m decidio.verify` never runs __main__.py's
-    # reconfigure) — deliberately duplicated, not shared: this file stays zero-coupled to cli.py,
-    # whose import would drag in the .env autoload the offline verifier must never touch.
+
+
+
     for _stream in (sys.stdout, sys.stderr):
         try:
             if hasattr(_stream, "reconfigure"):
                 _stream.reconfigure(encoding="utf-8", errors="replace")
-        except Exception:  # noqa: BLE001 — a non-reconfigurable stream keeps its encoding
+        except Exception:
             pass
     raise SystemExit(main())

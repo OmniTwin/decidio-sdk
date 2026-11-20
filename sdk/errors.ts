@@ -1,7 +1,10 @@
 const RETRYABLE_STATUS = (status: number) => status === 408 || status === 429 || (status >= 500 && status !== 501);
 
-function sideEffectNote(endpoint: string, code?: string): string {
+function sideEffectNote(endpoint: string, code?: string, unanswered = false): string {
   if (endpoint.startsWith("/agent/confirm")) {
+    if (code === "TERMINALLY_DENIED" && unanswered) {
+      return " Nobody decided this request by its deadline, so no authority was granted - and your action appears to have run anyway. Decidio will NOT attach execution evidence to it. Do NOT re-run it — find out why the action executed without an approval.";
+    }
     if (code === "TERMINALLY_DENIED") {
       return " A human DENIED this decision, and your action appears to have run anyway. Decidio recorded the refusal and will NOT attach execution evidence to a denied decision. Do NOT re-run it — investigate why the action executed without an approval.";
     }
@@ -45,7 +48,7 @@ export class DecidioHttpError extends Error {
                 ? ` — this looks transient. This SDK already retried it with the same request key (a request still waiting is answered with the one already waiting); retrying is safe and can never double-execute.`
                 : ` — this looks transient; retrying is safe and can never double-execute.`)
           : ` — the server refused the request itself, so retrying it unchanged will fail the same way. Fix the request (or the decision it names) first.`) +
-      sideEffectNote(endpoint, code),
+      sideEffectNote(endpoint, code, (body as { closedBy?: { reason?: unknown } | null } | null)?.closedBy?.reason === "unanswered"),
     );
     this.name = "DecidioHttpError";
     this.retryable = retryable;

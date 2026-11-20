@@ -53,7 +53,7 @@ from typing import Any, Dict, List, Tuple, Union
 
 from .errors import DecidioUnsafeArguments
 
-# The value model this SDK transports: exactly what JSON can carry, losslessly.
+
 JsonValue = Union[None, bool, int, float, str, List[Any], Dict[str, Any]]
 
 _PREFIX = "the approval payload must be plain JSON so that what a human approves is exactly what executes;"
@@ -106,12 +106,12 @@ def _assert_no_lone_surrogate(s: str, p: str) -> None:
 
 
 def _walk(v: Any, p: str, seen: set) -> JsonValue:
-    # ---- primitives ---------------------------------------------------------------------
+
     if v is None:
         return None
-    # bool BEFORE int: in Python `bool` is a subclass of `int`, so an int-first check would
-    # quietly reclassify True as 1 and the approver would read a number where the caller
-    # meant a flag.
+
+
+
     if v is True or v is False:
         return v
     t = type(v)
@@ -119,10 +119,10 @@ def _walk(v: Any, p: str, seen: set) -> JsonValue:
         _assert_no_lone_surrogate(v, p)
         return v
     if t is int:
-        # The gate enforces the rule the signer already enforces, by DELEGATING to it (A7,
-        # 0.1.12): an int JavaScript rounds used to pass here, so the human approved the
-        # rounded value while the action executed the exact one - and the signed/durable
-        # paths raised only AFTER /agent/authorize had already routed (a phantom approval).
+
+
+
+
         from .jcs import _int_number
         try:
             _int_number(v)
@@ -132,12 +132,12 @@ def _walk(v: Any, p: str, seen: set) -> JsonValue:
     if t is float:
         if not math.isfinite(v):
             raise _refuse(p, f"is {v}", "a non-finite number becomes null (or invalid JSON) on the wire, so the approver and your function would see different values - pass a finite number or a string.")
-        # -0.0 serializes as "0" and parses back as +0: the sign is lost silently.
+
         if v == 0.0 and math.copysign(1.0, v) < 0:
             raise _refuse(p, "is -0.0", "negative zero is indistinguishable from 0 after serialization - pass 0.0 if that is what you mean.")
         return v
 
-    # ---- the near-misses, each named for what it would silently become -------------------
+
     if isinstance(v, tuple):
         extra = "" if t is tuple else f" ({_type_name(v)}, a tuple subclass)"
         raise _refuse(p, f"is a tuple{extra}", "JSON turns it into a list (and a NamedTuple loses every field name), so the approved value would not be the executed one - pass a list or a dict.")
@@ -150,7 +150,7 @@ def _walk(v: Any, p: str, seen: set) -> JsonValue:
     if callable(v):
         raise _refuse(p, f"is callable ({_type_name(v)})", "a function cannot be serialized for approval - call it and pass the result.")
 
-    # ---- containers ---------------------------------------------------------------------
+
     if t is list or t is dict:
         vid = id(v)
         if vid in seen:
@@ -161,25 +161,25 @@ def _walk(v: Any, p: str, seen: set) -> JsonValue:
                 return [_walk(x, f"{p}[{i}]", seen) for i, x in enumerate(v)]
             out: Dict[str, Any] = {}
             for k, x in v.items():
-                # A non-string key is coerced by json.dumps (1 -> "1", True -> "true"), so two
-                # different keys can collide into one and the approver never sees the loss.
+
+
                 if type(k) is not str:
                     raise _refuse(p, f"has a non-string key {k!r}", "JSON silently coerces it to a string (and two keys can collide into one), so what a human approves would not be what executes - use string keys.")
                 _assert_no_lone_surrogate(k, f"{p}.{k}")
                 out[k] = _walk(x, f"{p}.{k}", seen)
             return out
         finally:
-            # Leave the set clean so a DAG (the same object reachable twice) is allowed - only
-            # true cycles are refused. Reference identity is not preserved; see the header.
+
+
             seen.discard(vid)
 
-    # A dict/list SUBCLASS reaches here: isinstance would have said yes, `type is` said no.
+
     if isinstance(v, dict):
         raise _refuse(p, f"is a {_type_name(v)} (a dict subclass)", "only a plain dict round-trips with its behaviour intact (an OrderedDict's ordering semantics, a defaultdict's factory and a Counter's arithmetic are all lost) - pass dict(value).")
     if isinstance(v, list):
         raise _refuse(p, f"is a {_type_name(v)} (a list subclass)", "only a plain list round-trips with its behaviour intact - pass list(value).")
 
-    # Everything else: Decimal, datetime, Enum, a dataclass instance, a custom class.
+
     raise _refuse(p, f"is a {_type_name(v)}", "only plain JSON values (None, bool, str, finite int/float, list, dict with string keys) survive serialization with their meaning intact - convert it to plain JSON first (e.g. str(value) for a datetime, float(value) for a Decimal, value.value for an Enum, dataclasses.asdict(value)).")
 
 
@@ -199,17 +199,17 @@ def canonicalize_args(args: Any, kwargs: Any = None) -> Tuple[list, dict]:
     for k, v in (kwargs or {}).items():
         if type(k) is not str:
             raise _refuse("kwargs", f"has a non-string key {k!r}", "keyword names must be strings - use string keys.")
-        # THE NAME IS PART OF THE SIGNED PAYLOAD, so it obeys the same string rule as the value
-        # (F-006). Only the value was walked, so a keyword NAME carrying a surrogate sailed through
-        # the gate that exists to stop exactly that - and then failed at the transport encode, AFTER
-        # the request had been routed for approval. Dict keys inside a value were already checked;
-        # the kwargs names, which are keys by another route, were not.
+
+
+
+
+
         _assert_no_lone_surrogate(k, "kwargs key")
         c_kwargs[k] = _walk(v, f"kwargs.{k}", seen)
     return c_args, c_kwargs
 
 
-# ---- deterministic bytes -----------------------------------------------------------------
+
 
 def _sort_key(key: str) -> bytes:
     """UTF-16 code-unit collation, matching JavaScript's default string comparison (and
@@ -232,12 +232,12 @@ def _number(v: Any) -> str:
     NOT on the signing path. One implementation, one gate."""
     from .jcs import _es_number, _int_number
 
-    if isinstance(v, bool):  # PY-TRAP 6: bool IS an int; never let True canonicalise as 1
+    if isinstance(v, bool):
         raise TypeError("bool is not a number")
-    # jcs's own dispatch, verbatim: an int goes through _int_number (which REFUSES a value that is
-    # not exactly representable as an IEEE-754 double, because RFC 8785 numbers are doubles and
-    # canonicalising it would silently sign a different value than the one JS parses); a float goes
-    # straight to the ECMAScript algorithm.
+
+
+
+
     try:
         return _int_number(v) if isinstance(v, int) else _es_number(v)
     except ValueError as e:
@@ -254,12 +254,12 @@ def canonical_json(value: Any) -> str:
         return "true"
     if value is False:
         return "false"
-    # THE SAME STRING RULE AS `canonicalize`. This exported helper skipped the surrogate check, so
-    # one value model gave two answers depending on which function a developer called: canonicalize
-    # refused a surrogate while canonical_json returned a str that then raised UnicodeEncodeError
-    # at the transport - after the gate had already approved the request. (The TypeScript twin got
-    # one step further and emitted an escaped surrogate: valid-LOOKING JSON no UTF-8 reader can
-    # round-trip back to what was signed. Same model, three behaviours.) Keys too.
+
+
+
+
+
+
     if isinstance(value, str):
         _assert_no_lone_surrogate(value, "canonical_json(...)")
         return json.dumps(value, ensure_ascii=False)

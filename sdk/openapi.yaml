@@ -5,14 +5,15 @@
 openapi: 3.1.0
 info:
   title: Decidio Agent Gate
-  version: 0.20.1   # tracks the SDK release - checked by packages/conformance/manifests.mjs
+  version: 0.21.0   # tracks the SDK release - checked by packages/conformance/manifests.mjs
   description: >
     Authorize an AI-agent action (proceed | route | block), confirm the captured outcome, and
     receive the signed resume webhook when a routed action is decided. Every outcome seals a
     verifiable Authority Receipt — verify offline with @decidio/verify (npm) or
     `python -m decidio.verify` (pip install decidio).
   license:
-    name: Apache-2.0
+    name: FSL-1.1-ALv2
+    identifier: FSL-1.1-ALv2
 servers:
   - url: https://mcp.decidioai.com
     description: Decidio
@@ -385,7 +386,7 @@ paths:
         GitHub deploy approval (its deploy job uses it). A spent or expired approval is refused before anything
         is written. A person's sign-in cannot claim (people approve, runs claim): it gets the 404. A bound agent
         token claims only its own signed decisions; an unsigned decision is claimable by any agent credential
-        of the workspace (founder call 29). The SDKs make the claimKey at random for each run (two workers with
+        of the workspace. The SDKs make the claimKey at random for each run (two workers with
         one key would be one run), retry a network failure or a 5xx with the SAME key, and run only on a 200.
       parameters:
         - name: decisionId

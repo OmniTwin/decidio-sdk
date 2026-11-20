@@ -25,7 +25,7 @@ import { gateAuthorize, gateConfirm, gateCheckApproval, gateClaim, assertApprova
  * → the typed refusal. `verify` is HTTP, so it must be an ACTIVITY, never workflow code (determinism) -
  * and it is required whenever `authorize` is.
  *
- * ONE APPROVAL, ONE RUN (0.12.0, founder call 24): once Decidio confirms a PERSON'S approval, the workflow collects
+ * ONE APPROVAL, ONE RUN: once Decidio confirms a PERSON'S approval, the workflow collects
  * it (`claim`, an activity) with a key made from the workflow's own deterministic uuid4 - the same key on a replay or an
  * activity retry, a different one in any other run - and runs only if Decidio says this run collected it. Another run
  * already used it, or it expired → DecidioBlockedError, and the action never runs. `claim` is required whenever

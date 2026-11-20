@@ -61,9 +61,13 @@ from .errors import (
     DecidioRequestChangedError,
     DecidioApprovalUnverified,
     DecidioApprovalUnverifiedError,
+    DecidioUnanswered,
+    DecidioUnansweredError,
+    UNANSWERED_WORDS,
+    unanswered_of,
 )
-# Lives in guard.py beside the authorize transport it types (the HTTP 429 branch), but is one of
-# the Decidio error classes and exported with them.
+
+
 from .guard import DecidioRateLimitError
 
 __all__ = [
@@ -80,7 +84,8 @@ __all__ = [
     "DecidioRateLimitError", "DecidioUnsafeArguments", "DecidioUnsafeArgumentsError",
     "DecidioHttpError",
     "DecidioRequestChanged", "DecidioRequestChangedError", "DecidioApprovalUnverified", "DecidioApprovalUnverifiedError",
+    "DecidioUnanswered", "DecidioUnansweredError", "UNANSWERED_WORDS", "unanswered_of",
     "check_approval", "approval_refusal", "claim_approval", "claim_refusal", "new_claim_key",
     "binding_material", "request_commitment", "idempotency_key", "invocation_request_key", "own_request_key", "committed_request_json",
 ]
-__version__ = "0.20.1"
+__version__ = "0.21.0"

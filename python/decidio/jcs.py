@@ -91,7 +91,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-# §3.2.2.2 — the ONLY characters JSON.stringify gives a short escape to.
+
 _SHORT_ESCAPES = {
     '"': '\\"',
     "\\": "\\\\",
@@ -126,19 +126,19 @@ def _json_string(s: str) -> str:
         if short is not None:
             out.append(short)
         elif cp < 0x20:
-            # Remaining C0 controls: \u00xx, LOWERCASE hex (JSON.stringify uses lowercase).
-            # Note 0x7F (DEL) is deliberately NOT escaped — JSON.stringify leaves it raw.
+
+
             out.append("\\u%04x" % cp)
         elif 0xD800 <= cp <= 0xDBFF and i + 1 < n and 0xDC00 <= ord(s[i + 1]) <= 0xDFFF:
-            # PY-TRAP 7. A high surrogate directly followed by a low one is the only thing JS could
-            # read as an astral character, so recombine and emit it raw — jcs.ts's "valid pair" arm.
+
+
             out.append(chr(0x10000 + ((cp - 0xD800) << 10) + (ord(s[i + 1]) - 0xDC00)))
             i += 2
             continue
         elif 0xD800 <= cp <= 0xDFFF:
-            # §3.2.2.2: a lone surrogate MUST terminate the canonicaliser. Escaping it (which is
-            # what JSON.stringify and json.dumps would do) yields bytes a conformant verifier will
-            # not reproduce, so the signature would fail looking like a crypto bug. Refuse instead.
+
+
+
             raise ValueError(f"JCS: unpaired {'high' if cp <= 0xDBFF else 'low'} surrogate U+{cp:04X}")
         else:
             out.append(ch)
@@ -155,10 +155,10 @@ def _es_number(x: float) -> str:
     shortest round-tripping digits — it just formats them by different rules — so we harvest the
     digits and n from repr() and then apply ES's four output cases verbatim.
     """
-    if math.isnan(x) or math.isinf(x):  # PY-TRAP 5
+    if math.isnan(x) or math.isinf(x):
         raise ValueError("JCS: non-finite numbers are not valid JSON")
     if x == 0:
-        return "0"  # covers -0.0: ES Number::toString maps both zeros to "0"
+        return "0"
     if x < 0:
         return "-" + _es_number(-x)
 
@@ -167,25 +167,25 @@ def _es_number(x: float) -> str:
     exp10 = int(exp_part) if exp_part else 0
     int_part, _, frac_part = mantissa.partition(".")
     digits = int_part + frac_part
-    # n = how many digits sit left of the decimal point, counted from the first digit of `digits`.
+
     n = len(int_part) + exp10
     stripped = digits.lstrip("0")
-    n -= len(digits) - len(stripped)          # each dropped leading zero shifts the point left
-    digits = stripped.rstrip("0")             # trailing zeros are not significant (k must be minimal)
+    n -= len(digits) - len(stripped)
+    digits = stripped.rstrip("0")
     k = len(digits)
 
-    # ES Number::toString, step for step. The 21 and -6 bounds are literal spec constants and are
-    # exactly why 1e20/1e21 and 1e-6/1e-7 are the two boundary vectors worth pinning in tests.
+
+
     if k <= n <= 21:
-        return digits + "0" * (n - k)          # 1e20 -> 100000000000000000000
+        return digits + "0" * (n - k)
     if 0 < n <= 21:
-        return digits[:n] + "." + digits[n:]   # 1.5 -> 1.5
+        return digits[:n] + "." + digits[n:]
     if -6 < n <= 0:
-        return "0." + "0" * -n + digits        # 1e-6 -> 0.000001
-    e = n - 1                                  # exponential form; e is never 0 in this branch
+        return "0." + "0" * -n + digits
+    e = n - 1
     sign = "+" if e > 0 else "-"
     lead = digits if k == 1 else digits[0] + "." + digits[1:]
-    return f"{lead}e{sign}{abs(e)}"            # 1e30 -> 1e+30, 1e-7 -> 1e-7 (NOT repr's 1e-07)
+    return f"{lead}e{sign}{abs(e)}"
 
 
 def _int_number(v: int) -> str:
@@ -209,7 +209,7 @@ def jcs_canonicalize(value: Any) -> str:
     """
     if value is None:
         return "null"
-    if isinstance(value, bool):        # PY-TRAP 6 — MUST precede the int branch
+    if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, int):
         return _int_number(value)
@@ -221,11 +221,11 @@ def jcs_canonicalize(value: Any) -> str:
         return "[" + ",".join(jcs_canonicalize(x) for x in value) + "]"
     if isinstance(value, dict):
         for k in value:
-            # JS object keys are always strings; coercing 1 -> "1" here could collide with a real
-            # "1" key and make the canonical form ambiguous, so refuse instead.
+
+
             if not isinstance(k, str):
                 raise TypeError(f"JCS: object keys must be strings, got {type(k).__name__}")
-        keys = sorted(value, key=_sort_key)   # §3.2.3, PY-TRAP 1
+        keys = sorted(value, key=_sort_key)
         return "{" + ",".join(f"{_json_string(k)}:{jcs_canonicalize(value[k])}" for k in keys) + "}"
     raise TypeError(f"JCS: cannot canonicalise type {type(value).__name__}")
 

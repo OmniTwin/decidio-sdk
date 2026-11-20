@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { DecidioSuspendedError, checkApproval, claimApproval, newClaimKey, RETRY_DELAYS_MS } from "./resume.js";
+import { DecidioSuspendedError, DecidioUnansweredError, checkApproval, claimApproval, newClaimKey, unansweredOf, RETRY_DELAYS_MS } from "./resume.js";
 import type { ResumeController, ApprovalCheck, ClaimOutcome } from "./resume.js";
 import { signBoundProof, signConfirm, assertSafeTransport, carriesCredential, bindingMaterial, requestCommitment, invocationRequestKey, ownRequestKey, type CommittedRequest } from "./signing.js";
 import { canonicalize, canonicalizeArgs, DecidioUnsafeArgumentsError, type JsonValue } from "./canonical.js";
 import { readConfirmResponse, buildConfirmBody, EVIDENCE_TIERS, type EvidenceOutcome, type EvidenceTier } from "./evidence.js";
-export { DecidioSuspendedError, DecidioDeniedError, DecidioRecoveryUnavailableError, FilePendingStore, MemoryPendingStore, createDecidioResume, assertConfirmRecorded, checkApproval, claimApproval, newClaimKey } from "./resume.js";
+export { DecidioSuspendedError, DecidioDeniedError, DecidioRecoveryUnavailableError, DecidioUnansweredError, FilePendingStore, MemoryPendingStore, createDecidioResume, assertConfirmRecorded, checkApproval, claimApproval, newClaimKey, unansweredOf, UNANSWERED_WORDS } from "./resume.js";
 export type { PendingAction, PendingStore, ResumeController, ResumeOutcome, ApprovalCheck, ApprovalCheckCode, DecisionStatus, ClaimOutcome, ClaimCode } from "./resume.js";
 export { guard, Guard } from "./guard.js";
 export type { GuardFacadeConfig, ProtectOptions } from "./guard.js";
@@ -126,6 +126,7 @@ export function approvalRefusal(check: ApprovalCheck): Error {
   const id = check.decisionId;
   switch (check.code) {
     case "rejected": return new DecidioRejectedError(check.reason ?? "rejected by approver", id);
+    case "unanswered": return new DecidioUnansweredError(id, check.deadline ?? null);
     case "blocked": return new DecidioBlockedError(check.reason ?? "blocked by policy", id);
     case "request_changed": return new DecidioRequestChangedError(id, check.reason);
     case "commitment_missing": return new DecidioApprovalUnverifiedError(id, "commitment_missing", check.reason ?? "Decidio answered without the request commitment this SDK sent");
@@ -160,7 +161,7 @@ export class DecidioTimeoutError extends Error {
 
 type Verdict = "proceed" | "route" | "block";
 interface AuthorizeResponse { decision: Verdict; decisionId: string; receiptId: string; reason?: string; idempotentReplay?: boolean; openTwin?: boolean }
-interface StatusResponse { state: "pending" | "approved" | "rejected" | "auto_approved" | "blocked"; reason?: string; requestCommitment?: string | null }
+interface StatusResponse { state: "pending" | "approved" | "rejected" | "auto_approved" | "blocked"; reason?: string; requestCommitment?: string | null; closedBy?: { reason: "unanswered"; deadline: string | null } | null }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -436,20 +437,23 @@ export function withApproval<A extends any[], R>(
       while (true) {
         const st: StatusResponse = await get(config, `/agent/status/${encodeURIComponent(auth.decisionId)}`);
         if (st.state === "approved" || st.state === "auto_approved") { approvedStatus = st; break; }
+        if (st.state === "rejected" && unansweredOf(st)) throw new DecidioUnansweredError(auth.decisionId, unansweredOf(st)!.deadline);
         if (st.state === "rejected") throw new DecidioRejectedError(st.reason ?? "rejected by approver", auth.decisionId);
         if (st.state === "blocked") throw new DecidioBlockedError(st.reason ?? "blocked", auth.decisionId);
         if (Date.now() > deadline) {
           let withdrawn = false;
           let lateState: string | null = null;
+          let lateUnanswered: { deadline: string | null } | null = null;
           let shared = auth.idempotentReplay === true || auth.openTwin === true;
           if (!shared) {
             try { await post(config, `/agent/withdraw/${encodeURIComponent(auth.decisionId)}`, { reason: "timeout" }); withdrawn = true; }
             catch (e) {
-              if (e instanceof DecidioHttpError && e.status === 409 && typeof (e.body as { state?: unknown } | undefined)?.state === "string") lateState = (e.body as { state: string }).state;
+              if (e instanceof DecidioHttpError && e.status === 409 && typeof (e.body as { state?: unknown } | undefined)?.state === "string") { lateState = (e.body as { state: string }).state; lateUnanswered = unansweredOf(e.body); }
               else if (e instanceof DecidioHttpError && e.status === 409 && (e.body as { code?: unknown } | undefined)?.code === "SHARED_REQUEST") shared = true;
             }
           }
           if (lateState === "approved" || lateState === "auto_approved") break;
+          if (lateState === "rejected" && lateUnanswered) throw new DecidioUnansweredError(auth.decisionId, lateUnanswered.deadline);
           if (lateState === "rejected") throw new DecidioRejectedError("rejected by approver", auth.decisionId);
           if (lateState === "blocked") throw new DecidioBlockedError("blocked", auth.decisionId);
           console.warn(`[decidio] blocking wait hit its ${Math.round(pollTimeout / 1000)}s limit — decision ${auth.decisionId} ${withdrawn ? "was withdrawn in Decidio (the queue no longer shows it; a later approval does nothing)" : shared ? "is shared with another caller (or an earlier try of this one), so it was left open for a person to decide - this process stopped waiting" : "is still open in Decidio (the withdraw call failed), but this process stopped waiting"} and nothing was executed. Re-run to request again, or use durable resume (guard.worker()) so an approval is never lost.`);

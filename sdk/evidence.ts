@@ -19,7 +19,7 @@ export function tierConfirms(tier: string | undefined | null): boolean { return 
  *  `execution_unconfirmed` (apps/api agent-confirm.ts, lint-locked CONFIRM-TRUTH), so a body that
  *  says otherwise is one the current server cannot emit; the tombstone applies the same rule, so
  *  reconfirm() - which derives from the tier - can never answer "confirmed" where resolve() answered
- *  "not confirmed" over the same record (invariant-guard, 0.3.3). Every other tier is stored verbatim. */
+ *  "not confirmed" over the same record. Every other tier is stored verbatim. */
 export function tombstoneTier(ev: EvidenceOutcome): string {
   return ev.executionReportVerified === false && tierConfirms(ev.evidenceTier) ? "execution_unconfirmed" : (ev.evidenceTier ?? "recorded");
 }

@@ -33,4 +33,10 @@ This repository is a release mirror: each release is one commit, and pull reques
 - Questions and bug reports: support@decidioai.com
 - Security issues: security@decidioai.com
 
-Licensed under the Apache License 2.0 (`LICENSE`).
+## Licence
+
+- `sdk/`, `alias/` and `python/` (`@decidio/sdk`, `decidio` on npm, `decidio` on PyPI): the Functional Source License,
+  Version 1.1, ALv2 Future License (`LICENSE`). Any use is permitted except a competing product or service, and each
+  version is also available under the Apache License, Version 2.0, from the second anniversary of its release.
+- `verify/` (`@decidio/verify`): the Apache License, Version 2.0 (`verify/LICENSE`), so anyone can check a receipt.
+- Versions 0.20.1 and earlier of every package were released under the Apache License, Version 2.0.

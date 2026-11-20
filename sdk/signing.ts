@@ -135,7 +135,7 @@ export function assertJsonSafe(value: unknown, path = "args"): void {
  *  allowed for local dev; https always allowed. Throws before anything is sent. */
 /** The URL as it may be ECHOED in a refusal: userinfo masked. The SDK treats URL userinfo as a credential
  *  (it is refused as one), so no refusal may print it - every branch of assertSafeTransport echoes through
- *  this, not the raw string (invariant-guard, 0.3.5). */
+ *  this, not the raw string. */
 export function redactUrl(u: string): string {
   return u.replace(/\/\/[^/?#]*@/, "//***@").replace(/^([^/?#@:]*:)(?!\/\/)[\/\\]*[^/?#]*@/, "$1***@");
 }
@@ -257,7 +257,7 @@ export function requestCommitment(material: BindingMaterial, request: CommittedR
 export function idempotencyKey(material: BindingMaterial, identity: Record<string, JsonValue>): string {
   return createHmac("sha256", bindingSubkey(material, "decidio.idempotency-key.v1")).update(canonicalJson(identity, "idempotency identity"), "utf8").digest("hex");
 }
-/** THE REQUEST KEY A CALL SENDS BY DEFAULT (11f, founder 2026-10-30): an idempotency key over a per-call random id and
+/** THE REQUEST KEY A CALL SENDS BY DEFAULT: an idempotency key over a per-call random id and
  *  the request's commitment, so the SDK's own retry of one call is the same request (the gate answers the decision it
  *  already made) while two calls stay two requests. Python twin: invocation_request_key. */
 export function invocationRequestKey(material: BindingMaterial, invocationId: string, commitment: string): string {
@@ -270,7 +270,7 @@ export function ownRequestKey(material: BindingMaterial, key: string): string {
   return idempotencyKey(material, { requestKey: key });
 }
 /** The Claude Code hook's request scope: `cmd-` + 16 hex of a KEYED digest over the command text and its subject
- *  (chat approvals follow-up, invariant-guard 2026-10-15). The text may carry a credential the display redacts; an
+ *. The text may carry a credential the display redacts; an
  *  unkeyed digest sealed beside the redacted text would be an offline oracle for a weak password. Keyed under its own
  *  domain, so it is deterministic for this agent and nothing to anyone without the key material. */
 export function boundScope(material: BindingMaterial, text: string): string {

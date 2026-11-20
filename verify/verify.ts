@@ -370,6 +370,165 @@ export function verifyCheckComplete(vc: any, disclosure: any, expectedIssuer?: s
   }
 }
 
+/** The bound request's algorithm, as sealed in `authority.boundRequest.alg`. */
+export const BOUND_REQUEST_ALG = "decidio.bound-request.v1";
+/** The card's committed details, in the order Decidio's gate commits to them. */
+export const GATE_COMMITTED_KEYS = ["category", "command", "cwd", "host", "scriptLine", "subject", "tool"] as const;
+
+/** The request as its owner discloses it, with the key(s) to check it under (each 32 bytes as 64 lowercase hex). */
+export interface BoundRequestDisclosure { request: unknown; commitmentKey?: string; gateKey?: string }
+export interface BoundRequestResult {
+  valid: boolean;
+  reason?: string;
+  recordId?: string;
+  /** Which sealed digests the disclosed request matched — reported only when it verifies. */
+  matched?: ("commitment" | "evaluated")[];
+  /** Which of the receipt's clear fields the request was compared with: always all three. */
+  checked?: ("amount" | "action" | "scope")[];
+  /** The receipt's issuer DID: pin it (`expectedIssuer`) to trust only Decidio's own. */
+  issuer?: string;
+  /** The receipt's requester, as sealed: a match means something only for the key holder's own agent, and the DID counts only
+   *  when `identityVerified` is true (an unverified request keeps the DID it claimed). */
+  requesterDid?: string | null;
+  identityVerified?: boolean | null;
+}
+
+function boundRequestShapeProblem(request: unknown): string {
+  if (!request || typeof request !== "object" || Array.isArray(request)) return "the request is not an object";
+  const q = request as Record<string, unknown>;
+  const extra = Object.keys(q).filter((k) => !["action", "amount", "scope", "context", "args", "kwargs"].includes(k));
+  if (extra.length) return `the request has keys outside { action, amount, scope, context, args, kwargs }: ${extra.sort().join(", ")}`;
+  if (typeof q.action !== "string" || !q.action) return "the request's action is not a string";
+  if (typeof q.amount !== "number" || !Number.isFinite(q.amount)) return "the request's amount is not a finite number";
+  if (q.amount < 0) return "the request's amount is negative (Decidio's gate refuses one)";
+  if (q.scope !== undefined && q.scope !== null && typeof q.scope !== "string") return "the request's scope is not a string";
+  const plain = (v: unknown) => v === undefined || v === null || (typeof v === "object" && !Array.isArray(v));
+  if (!plain(q.context)) return "the request's context is not an object";
+  if (q.context && !Object.values(q.context as object).every((v) => typeof v === "string" || (typeof v === "number" && Number.isFinite(v)))) return "the request's context values are not strings or finite numbers";
+  if (q.args !== undefined && q.args !== null && !Array.isArray(q.args)) return "the request's args are not a list";
+  if (!plain(q.kwargs)) return "the request's kwargs are not an object";
+  return "";
+}
+
+/** The exact bytes an agent's commitment covers: JCS of the request with absent and null members left out. PURE. */
+export function boundRequestCanonical(request: unknown): string {
+  const q = request as Record<string, unknown>;
+  const r: Record<string, unknown> = { action: q.action, amount: q.amount };
+  for (const k of ["scope", "context", "args", "kwargs"]) if (q[k] !== undefined && q[k] !== null) r[k] = q[k];
+  return jcsCanonicalize(r);
+}
+/** The agent's raw commitment to a request, under its commitment key (64 hex) — what the agent sent; the receipt seals
+ *  sealedCommitmentOf(it). PURE. */
+export function requestCommitmentOf(commitmentKey: string, request: unknown): string {
+  return createHmac("sha256", Buffer.from(commitmentKey, "hex")).update(boundRequestCanonical(request), "utf8").digest("hex");
+}
+/** What a receipt seals of an agent's raw commitment: SHA-256 over its 64 lowercase hex characters, UTF-8. PURE. */
+export function sealedCommitmentOf(commitment: string): string {
+  return createHash("sha256").update(commitment, "utf8").digest("hex");
+}
+/** The gate's digest of a request it received, under the gate key (64 hex). PURE. */
+export function gateDigestOf(gateKey: string, request: unknown): string {
+  const q = request as Record<string, unknown>;
+  const ctx = (q.context && typeof q.context === "object" ? q.context : {}) as Record<string, unknown>;
+  const d: Record<string, string> = {};
+  for (const k of GATE_COMMITTED_KEYS) { const v = ctx[k]; if (v !== undefined && v !== null) d[k] = String(v); }
+  const p = typeof q.scope === "string" ? q.scope : "";
+  return createHmac("sha256", Buffer.from(gateKey, "hex")).update(jcsCanonicalize({ a: q.action, d, m: q.amount, p }), "utf8").digest("hex");
+}
+
+const MASK = /\[[A-Z][A-Z0-9_]*\]/;
+function matchesSealed(sealed: string, disclosed: string): { match: boolean; masked: boolean } {
+  if (!sealed) return { match: false, masked: false };
+  if (MASK.test(sealed)) return { match: false, masked: true };
+  return { match: sealed === disclosed, masked: false };
+}
+/** Compare a disclosed request with what an agent receipt seals in the clear (see the algorithm above): its requested amount within
+ *  half a cent plus 4 ulps, its action, and its scope (the action when the request has none), both byte for byte. Returns the
+ *  problems ([] when they agree), the fields compared (always all three) and the ones that hold a mask (each also a problem). A
+ *  receipt with no requested amount, or an empty or masked action or scope, is a problem, never skipped. PURE. */
+export function boundRequestClearProblems(authority: unknown, request: unknown): { problems: string[]; checked: ("amount" | "action" | "scope")[]; masked: ("action" | "scope")[] } {
+  const a = (authority && typeof authority === "object" && !Array.isArray(authority) ? authority : {}) as Record<string, unknown>;
+  const q = (request && typeof request === "object" ? request : {}) as Record<string, unknown>;
+  const problems: string[] = [], masked: ("action" | "scope")[] = [];
+  const limits = Array.isArray(a.evaluatedLimits) ? a.evaluatedLimits as unknown[] : [];
+  const req = limits.find((l) => !!l && typeof l === "object" && (l as Record<string, unknown>).type === "requested_amount") as Record<string, unknown> | undefined;
+  const sealedAmount = req && typeof req.value === "string" && /^\d+(\.\d+)?$/.test(req.value) ? Number(req.value) : NaN;
+  const amount = q.amount;
+  if (!Number.isFinite(sealedAmount)) problems.push("the receipt seals no requested amount to compare the request's with");
+  else if (!(typeof amount === "number" && Number.isFinite(amount) && amount >= 0 && Math.abs(sealedAmount - amount) <= 0.005 + 4 * Number.EPSILON * Math.max(1, Math.abs(amount)))) {
+    problems.push(`the request's amount (${String(amount)}) is not the amount Decidio evaluated (${String(req!.value)})`);
+  }
+  const sealedText = (v: unknown) => (typeof v === "string" ? v : "");
+  const action = typeof q.action === "string" ? q.action : "";
+  const scope = typeof q.scope === "string" ? q.scope : action;
+  for (const [field, sealed, disclosed] of [["action", sealedText(a.actedAction), action], ["scope", sealedText(a.actedResource), scope]] as const) {
+    if (!sealed) { problems.push(`the receipt seals an empty ${field}, which no described request matches`); continue; }
+    const m = matchesSealed(sealed, disclosed);
+    if (m.masked) { masked.push(field); problems.push(`the receipt's ${field} holds a masked name, and offline verification compares clear text only`); }
+    else if (!m.match) problems.push(`the request's ${field} is not the ${field} Decidio evaluated`);
+  }
+  return { problems, checked: ["amount", "action", "scope"], masked };
+}
+
+/** Verify that a Decidio Authority Receipt was sealed for this request, offline: the receipt itself verifies (verifyReceipt,
+ *  pinned to `expectedIssuer` when given), its sealed payload carries a `decidio.bound-request.v1` block, the request's action,
+ *  amount and scope are the ones the receipt seals in the clear (boundRequestClearProblems: the amount within half a cent plus 4
+ *  ulps; the action and scope byte for byte, an empty or masked one matching nothing), and under the key for EVERY digest the
+ *  block seals — the agent's commitment key, the gate key, or both — the request rebuilds that digest exactly. A missing key, or a
+ *  key for a digest the receipt doesn't seal, is refused, never skipped; against a receipt that seals only the card digest, a
+ *  request carrying anything that digest doesn't bind is refused. The request's arguments and context rest on the agent's own commitment:
+ *  Decidio never received them. The result names the receipt's issuer and requester: a match means something only for the key
+ *  holder's own agent, on a receipt whose requester was verified. */
+export function verifyBoundRequest(vc: any, disclosure: any, expectedIssuer?: string): BoundRequestResult {
+  try {
+    const r = verifyReceipt(vc, expectedIssuer);
+    if (!r.valid) return { valid: false, recordId: r.recordId, reason: `the receipt itself does not verify: ${r.reason ?? "invalid"}` };
+    let payload: any;
+    try { payload = JSON.parse(vc.credentialSubject.recordCanonical); } catch { return { valid: false, recordId: r.recordId, reason: "the receipt's sealed record does not parse" }; }
+    const no = (reason: string): BoundRequestResult => ({ valid: false, recordId: r.recordId, reason });
+    const auth = payload && typeof payload === "object" ? payload.authority : undefined;
+    const b = auth && typeof auth === "object" ? auth.boundRequest : undefined;
+    if (b === undefined || b === null) return no("the receipt seals no bound request (sealed before Decidio bound requests into receipts, not an agent's request, or its request carried no commitment)");
+    const hexOrNull = (v: unknown) => v === null || (typeof v === "string" && HEX64.test(v));
+    if (typeof b !== "object" || Array.isArray(b) || Object.keys(b).sort().join(",") !== "alg,commitment,evaluated" || b.alg !== BOUND_REQUEST_ALG
+      || !hexOrNull(b.commitment) || !hexOrNull(b.evaluated) || (b.commitment === null && b.evaluated === null)) {
+      return no(`the receipt's bound request is not a ${BOUND_REQUEST_ALG} block`);
+    }
+    const d = disclosure && typeof disclosure === "object" && !Array.isArray(disclosure) ? disclosure : null;
+    if (!d) return no("no disclosure: expected { request, commitmentKey?, gateKey? }");
+    const shape = boundRequestShapeProblem(d.request);
+    if (shape) return no(shape);
+    const keyOk = (k: unknown) => typeof k === "string" && HEX64.test(k);
+    if (d.commitmentKey !== undefined && b.commitment === null) return no("the receipt seals no agent commitment (the request carried none, or only Decidio's own binding), so a commitment key has nothing to check");
+    if (d.gateKey !== undefined && b.evaluated === null) return no("the receipt seals no card digest (only the coding-agent hook's requests that went to a person carry one), so a gate key has nothing to check");
+    if (b.commitment !== null && d.commitmentKey === undefined) return no("the receipt seals the agent's commitment: give the agent's commitment key too (every digest it seals must match, or the request isn't the one it was sealed for)");
+    if (b.evaluated !== null && d.gateKey === undefined) return no("the receipt seals the gate's card digest: give the gate key too (every digest it seals must match, or the request isn't the one it was sealed for)");
+    if (b.commitment === null) {
+      const q = d.request as Record<string, unknown>;
+      const unbound = [...(q.args != null ? ["args"] : []), ...(q.kwargs != null ? ["kwargs"] : []),
+        ...Object.keys((q.context ?? {}) as object).filter((k) => !(GATE_COMMITTED_KEYS as readonly string[]).includes(k)).map((k) => `context.${k}`)];
+      if (unbound.length) return no(`the receipt seals only the gate's card digest, which binds none of the request's ${unbound.join(", ")}: disclose only what it binds`);
+    }
+    const clearFields = boundRequestClearProblems(auth, d.request);
+    if (clearFields.problems.length) return no(`the request is not the one Decidio evaluated: ${clearFields.problems.join("; ")}`);
+    const matched: ("commitment" | "evaluated")[] = [];
+    if (b.commitment !== null) {
+      if (!keyOk(d.commitmentKey)) return no("the commitment key is not 32 bytes of lowercase hex");
+      if (sealedCommitmentOf(requestCommitmentOf(d.commitmentKey, d.request)) !== b.commitment) return no("the request is not the one the receipt was sealed for: under this commitment key it does not rebuild the sealed commitment (another request, another agent's key, or one changed byte)");
+      matched.push("commitment");
+    }
+    if (b.evaluated !== null) {
+      if (!keyOk(d.gateKey)) return no("the gate key is not 32 bytes of lowercase hex");
+      if (gateDigestOf(d.gateKey, d.request) !== b.evaluated) return no("the request is not the one the gate received: under this gate key it does not rebuild the sealed card digest (another card, another token, or one changed committed detail)");
+      matched.push("evaluated");
+    }
+    return { valid: true, recordId: r.recordId, matched, checked: clearFields.checked, issuer: r.issuer,
+      requesterDid: typeof auth.requesterDid === "string" ? auth.requesterDid : null, identityVerified: typeof auth.identityVerified === "boolean" ? auth.identityVerified : null };
+  } catch (e: any) {
+    return { valid: false, reason: String(e?.message ?? e) };
+  }
+}
+
 /** Parse a receipt, REFUSING duplicate object keys. RFC 8785 §3.1 requires duplicate-free input,
  *  and JSON.parse silently keeps the last one — so a file containing
  *  `"issuer":"did:key:zEVIL","issuer":"<real>"` verifies while a human (or any parser that keeps the
@@ -429,12 +588,10 @@ function findDuplicateKey(text: string): string | null {
  *  sdk's grant and pause check matches them too, but the release never checks them live, because a custom domain can
  *  move between deployments (mcp.decidioai.com is staging's until the cutover window, production's after it). */
 export interface KnownIssuer { readonly did: string; readonly host: string; readonly label: string; readonly alsoAt?: readonly string[] }
-/** THE BUILT-IN TRUST ANCHORS (founder-approved 2026-09-24). A receipt names its own issuer, so pinning to that field
+/** THE BUILT-IN TRUST ANCHORS. A receipt names its own issuer, so pinning to that field
  *  is circular - any key can sign a file that names itself - and until now the only alternative was asking every
  *  reader to paste a DID. These are the issuers every CLI door trusts out of the box: Decidio's own deployments, each of
- *  which publishes its DID at https://<host>/api/did - staging (the lab) and production (launch plan L9, founder call
- *  F-1106-C1: production's DID was read from its live endpoint on 2026-11-10; its key is Ed25519 in AWS KMS, never
- *  exported - F-1110-L4 - and the verifier pins only the DID). Staging stays first: an entry's position means nothing
+ *  which publishes its DID at https://<host>/api/did - staging (the lab) and production. Staging stays first: an entry's position means nothing
  *  to the verifier, which picks by the receipt's DID among these and nothing else. ONE list for every door of this package and of
  *  @decidio/sdk; the Python twin (decidio/verify.py KNOWN_ISSUERS) carries the same entries, and the three-door
  *  conformance gate fails if the doors disagree. NEVER the verification kit's published SAMPLE issuer: its private key

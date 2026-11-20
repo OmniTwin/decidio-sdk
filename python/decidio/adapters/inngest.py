@@ -38,11 +38,11 @@ async def gate(step: Any, guard: Any, ctx: dict, run: Callable[[], Any], timeout
     `run_id`: Inngest's id for THIS function run - the handler context's `run_id` (0.12.0, 11f; TS twin `runId`). The
     request key is keyed on it, so Inngest retrying the authorize step is the same request while it waits. Without it
     the key is over a fresh id for the call (a retried step may then ask again)."""
-    # authorize as a memoized step (a replay doesn't re-ask the gate)
+
     raw = await step.run("decidio-authorize", lambda: _authorize_dict(guard, ctx, run_id if isinstance(run_id, str) and run_id else None))
-    # Re-checked AFTER the durable replay: a memoized step hands back whatever the JOURNAL
-    # holds, which may have been written by a different SDK version. The allow-list is cheap
-    # and the alternative is executing a verdict this build has never heard of.
+
+
+
     checked = assert_authorize_verdict(raw, "unknown")
     auth = {"decision": checked.decision, "decisionId": checked.decision_id, "reason": checked.reason}
     if auth["decision"] == "block":
@@ -52,11 +52,11 @@ async def gate(step: Any, guard: Any, ctx: dict, run: Callable[[], Any], timeout
     if auth["decision"] == "route":
         n = 0
         while True:
-            # Step ids must be deterministic across replays: the first wait keeps its 0.x name, each
-            # later one is numbered (TS twin).
+
+
             suffix = "" if n == 0 else f"-{n}"
             n += 1
-            # durably suspend until the resume event for THIS decision arrives (process may die)
+
             ev = await step.wait_for_event(
                 f"decidio-await-approval{suffix}",
                 event=DECIDIO_RESUME_EVENT,
@@ -65,8 +65,8 @@ async def gate(step: Any, guard: Any, ctx: dict, run: Callable[[], Any], timeout
             )
             if ev is None:
                 raise TimeoutError(f"decidio approval timed out ({auth['decisionId']})")
-            # THE EVENT IS A WAKE-UP (0.7.0): the approval is confirmed with Decidio for THIS request, as
-            # a STEP - memoized, so a replay reads the same answer instead of asking again.
+
+
             check = assert_check_shape(
                 await step.run(f"decidio-verify-approval{suffix}", lambda: check_approval_for(guard, auth["decisionId"], ctx)),
                 auth["decisionId"])
@@ -74,11 +74,11 @@ async def gate(step: Any, guard: Any, ctx: dict, run: Callable[[], Any], timeout
                 break
             if check.get("code") != "pending":
                 raise approval_refusal(check)
-            # Decidio records no approval yet: the event was premature, or forged. Wait for the next one.
+
     result = await step.run("agent-action", run)
-    # The step RETURNS the outcome rather than None: it is plain JSON, so Inngest memoizes it
-    # correctly on a replay, and discarding it was what left the caller unable to tell a recorded
-    # execution from an unrecorded one (F-008).
+
+
+
     _outcome = await step.run("decidio-confirm", lambda: confirm(guard, auth["decisionId"], result, evidence=evidence))
     from ..guard import ProtectedExecution
     _rk = raw.get("requestKey") if isinstance(raw, dict) and isinstance(raw.get("requestKey"), str) else None

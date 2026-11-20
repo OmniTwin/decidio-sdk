@@ -101,8 +101,56 @@ or a wrong key, and the root moves. The key tells its holder how many policies c
 which is why Decidio gives it to no one but the admin. A verifier that has only `verifyCheckEntry`
 checks the same receipts' entries exactly as before: to it, a pad is just a sibling hash.
 
-`verifyCheckEntry` and `verifyCheckComplete` are in this TypeScript package only; the Python verifier
-does not have them yet.
+## The request it was sealed for (`verifyBoundRequest`)
+An agent receipt sealed by Decidio from late November 2026 on ties the request it was asked about
+to itself: `authority.boundRequest` (`decidio.bound-request.v1`) holds a hash of the agent's own
+commitment to the request and, for a coding-agent command that went to a person, the gate's own
+digest of what it received. It is sealed on every such receipt, whatever was decided; it never says
+that anyone approved anything.
+
+```ts
+import { verifyBoundRequest } from "@decidio/verify";
+// request: { action, amount, scope?, context?, args?, kwargs? }, exactly as the agent asked
+const r = verifyBoundRequest(vc, { request, commitmentKey, gateKey }, "did:key:z6Mk…");
+// { valid, matched, checked, issuer, requesterDid, identityVerified, reason? }
+```
+
+What a match proves, and what it doesn't:
+- **What Decidio evaluated.** The request's amount must be within half a cent of the amount the
+  receipt records (plus 4 ulps: above about 5.6×10^12 that is looser than a cent, as the database
+  keeps 16 significant digits), and its action and scope (the action when there is none) must equal
+  the ones it seals, byte for byte. A receipt whose sealed action or scope is empty matches nothing.
+  Neither does one whose action or scope holds a mask: where Decidio masked a name, a contact or a
+  number in it (`[VENDOR_2]`, `[EMAIL_1]`), or the text merely looks like a mask (`[PROD]`), it can't
+  be compared offline, so the receipt doesn't verify and the reason says so.
+- **The agent's commitment** (`commitmentKey`): `SHA-256(HMAC-SHA256(commitmentKey, JCS(request)))`,
+  the hash taken over the 64 lowercase hex characters. Absent or null request members are left out.
+  This is the agent's own word: Decidio receives it opaque and cannot check it. So the request's
+  **arguments** rest on it alone, because the gate never receives them, and so does its **`context`**:
+  Decidio shows the context to the approver but seals no digest of it (only a coding-agent card's
+  seven committed details, under the gate key below). The key is
+  `HMAC-SHA256(secret, "decidio.request-commitment.v1/" + kind)`: kind `ed25519` with the agent's
+  32-byte Ed25519 private seed when the SDK signs, else kind `api-token` with the API token's UTF-8
+  bytes.
+- **The card** (`gateKey`): Decidio's own digest of what it received,
+  `HMAC-SHA256(gateKey, JCS({ a: action, d, m: amount, p: scope or "" }))`. `d` holds the card's
+  seven committed details: the context's `category`, `command`, `cwd`, `host`, `scriptLine`,
+  `subject` and `tool`, each present one as a string. Other card lines, such as the mode, the
+  repository or what the person asked, are not in it. The key is
+  `HMAC-SHA256(bearer token, "decidio.gate-request.v1")`. A receipt that seals only this digest binds
+  nothing else, so a disclosed request carrying arguments or other context lines is refused against it.
+
+A key is needed for **every** digest the receipt seals, and a key for a digest it doesn't seal is
+refused. Both keys come from the agent's own secret: its signing key, or its API token, which
+Decidio receives with each request. A key opens every request made with it, not just this one, so
+hand it only to someone who may see them all. A match means something only on a receipt whose
+requester is the key holder's own agent, so check `requesterDid`, and count it only when
+`identityVerified` is true: an unverified request keeps the DID it claimed. Pin the issuer, or check
+`issuer`. The SDK doesn't derive these keys
+for you yet; derive them as above.
+
+`verifyCheckEntry`, `verifyCheckComplete` and `verifyBoundRequest` are in this TypeScript package
+only; the Python verifier doesn't have them yet.
 
 ## Parity
 A Python verifier ships in `decidio[verify]` (`python -m decidio.verify`). Both verifiers accept the **same** real Decidio seals — proven in the cross-language conformance suite. Zero dependencies beyond `node:crypto` (TS) / `cryptography` (Python).
